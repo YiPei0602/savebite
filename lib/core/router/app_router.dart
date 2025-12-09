@@ -19,9 +19,19 @@ import '../../features/donation/screens/donation_prompt_screen.dart';
 /// SaveBite App Router
 /// 
 /// Centralized routing configuration using go_router.
+/// Includes auth-based redirects (placeholder for now).
 class AppRouter {
   static final GoRouter router = GoRouter(
     initialLocation: '/login',
+    redirect: (BuildContext context, GoRouterState state) {
+      // TODO: Implement auth-based redirects
+      // Check if user is authenticated
+      // Redirect to login if not authenticated and trying to access protected routes
+      // Redirect to appropriate dashboard based on user role
+      
+      // For now, allow all navigation
+      return null;
+    },
     routes: [
       // ========================================================================
       // AUTH ROUTES

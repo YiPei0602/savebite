@@ -192,11 +192,18 @@ class _CartScreenState extends State<CartScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text('Your Cart', style: AppTypography.h3),
+        centerTitle: true,
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        iconTheme: IconThemeData(color: AppColors.textPrimary),
+        title: Text(
+          'Your Cart',
+          style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
+        ),
         actions: [
           if (_cartItems.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.delete_outline),
+              icon: Icon(Icons.delete_outline, color: AppColors.textPrimary),
               onPressed: () {
                 showDialog(
                   context: context,
@@ -270,7 +277,9 @@ class _CartScreenState extends State<CartScreen> {
               ),
               child: Text(
                 'Browse Surplus Food',
-                style: AppTypography.buttonMedium,
+                style: AppTypography.buttonMedium.copyWith(
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
@@ -384,7 +393,7 @@ class _CartScreenState extends State<CartScreen> {
                       Text(
                         '${AppConstants.currencySymbol}${price.toStringAsFixed(2)}',
                         style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.accent,
+                          color: const Color(0xFFFF6B00),
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -423,7 +432,7 @@ class _CartScreenState extends State<CartScreen> {
                 Text(
                   '${AppConstants.currencySymbol}${itemTotal.toStringAsFixed(2)}',
                   style: AppTypography.h5.copyWith(
-                    color: AppColors.primary,
+                    color: const Color(0xFF2196F3),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -595,7 +604,7 @@ class _CartScreenState extends State<CartScreen> {
                 child: ElevatedButton(
                   onPressed: _proceedToCheckout,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: const Color(0xFF00A86B), // green for checkout button
                     padding: const EdgeInsets.symmetric(
                       vertical: AppConstants.paddingL,
                     ),
@@ -609,10 +618,12 @@ class _CartScreenState extends State<CartScreen> {
                     children: [
                       Text(
                         'Proceed to Checkout',
-                        style: AppTypography.buttonLarge,
+                        style: AppTypography.buttonLarge.copyWith(
+                          color: Colors.white,
+                        ),
                       ),
                       const SizedBox(width: AppConstants.paddingS),
-                      const Icon(Icons.arrow_forward, size: 20),
+                      const Icon(Icons.arrow_forward, size: 20, color: Colors.white),
                     ],
                   ),
                 ),

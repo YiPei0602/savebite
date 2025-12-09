@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_typography.dart';
 import '../core/constants/app_constants.dart';
+import 'track_order_screen.dart';
 
 /// Checkout Screen
 /// 
@@ -45,6 +46,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   void _placeOrder() {
+    // Generate order ID
+    final orderId = 'SB${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+    
     // Show loading dialog
     showDialog(
       context: context,
@@ -74,12 +78,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               Container(
                 padding: const EdgeInsets.all(AppConstants.paddingL),
                 decoration: BoxDecoration(
-                  color: AppColors.success.withOpacity(0.1),
+                  color: const Color(0xFFF5F5F5),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.check_circle,
-                  color: AppColors.success,
+                  color: Color(0xFF212121),
                   size: 60,
                 ),
               ),
@@ -87,20 +91,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               Text(
                 'Order Placed!',
                 style: AppTypography.h3.copyWith(
-                  color: AppColors.success,
+                  color: const Color(0xFF212121),
+                  fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: AppConstants.paddingS),
               Text(
                 'Your order has been successfully placed.',
-                style: AppTypography.bodyMedium,
+                style: AppTypography.bodyMedium.copyWith(
+                  color: const Color(0xFF616161),
+                ),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppConstants.paddingXS),
               Text(
-                'Order #SB${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+                'Order #$orderId',
                 style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
+                  color: const Color(0xFF9E9E9E),
                 ),
               ),
               const SizedBox(height: AppConstants.paddingL),
@@ -108,15 +115,41 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () {
-                    // Go back to home (pop all screens)
-                    Navigator.of(context).popUntil((route) => route.isFirst);
+                    // Close dialog
+                    Navigator.pop(context);
+                    
+                    // Navigate to Track Order screen
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => TrackOrderScreen(
+                          orderId: orderId,
+                          cartItems: widget.cartItems,
+                          subtotal: widget.subtotal,
+                          totalSavings: widget.totalSavings,
+                          isSelfPickup: _isSelfPickup,
+                          paymentMethod: _selectedPaymentMethod,
+                        ),
+                      ),
+                    );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: const Color(0xFF212121),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppConstants.paddingM,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                    ),
                   ),
                   child: Text(
-                    'Back to Home',
-                    style: AppTypography.buttonMedium,
+                    'Track Order',
+                    style: AppTypography.buttonMedium.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -132,7 +165,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text('Checkout', style: AppTypography.h3),
+        centerTitle: true,
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        iconTheme: IconThemeData(color: AppColors.textPrimary),
+        title: Text(
+          'Checkout',
+          style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
+        ),
       ),
       body: Column(
         children: [
@@ -143,18 +183,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Section 1: Fulfillment Method
+                  // Section 1: Fulfillment Method (Delivery Options)
                   _buildFulfillmentSection(),
 
                   const SizedBox(height: AppConstants.paddingL),
 
-                  // Section 2: Payment Method
-                  _buildPaymentSection(),
+                  // Section 2: Order Summary
+                  _buildOrderSummary(),
 
                   const SizedBox(height: AppConstants.paddingL),
 
-                  // Section 3: Order Summary
-                  _buildOrderSummary(),
+                  // Section 3: Payment Method
+                  _buildPaymentSection(),
 
                   const SizedBox(height: 100), // Space for bottom button
                 ],
@@ -197,13 +237,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             const SizedBox(height: AppConstants.paddingM),
 
             // Toggle Switch: Self-Pickup vs Delivery
-            Container(
-              decoration: BoxDecoration(
-                color: AppColors.surfaceVariant,
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              ),
-              child: Row(
-                children: [
+            Row(
+              children: [
                   // Self-Pickup Option
                   Expanded(
                     child: InkWell(
@@ -215,8 +250,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: _isSelfPickup
-                              ? AppColors.primary
-                              : Colors.transparent,
+                              ? const Color(0xFF00695C)
+                              : const Color(0xFFE0F2F1),
                           borderRadius: BorderRadius.circular(AppConstants.radiusM),
                         ),
                         child: Column(
@@ -224,8 +259,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             Icon(
                               Icons.store,
                               color: _isSelfPickup
-                                  ? AppColors.textOnPrimary
-                                  : AppColors.textSecondary,
+                                  ? Colors.white
+                                  : const Color(0xFF00695C),
                               size: 28,
                             ),
                             const SizedBox(height: AppConstants.paddingXS),
@@ -233,11 +268,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               'Self-Pickup',
                               style: AppTypography.bodyMedium.copyWith(
                                 color: _isSelfPickup
-                                    ? AppColors.textOnPrimary
-                                    : AppColors.textPrimary,
-                                fontWeight: _isSelfPickup
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
+                                    ? Colors.white
+                                    : const Color(0xFF00695C),
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: AppConstants.paddingXS),
@@ -245,8 +278,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               'Free',
                               style: AppTypography.bodySmall.copyWith(
                                 color: _isSelfPickup
-                                    ? AppColors.textOnPrimary
-                                    : AppColors.success,
+                                    ? Colors.white
+                                    : const Color(0xFF00695C),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -255,6 +288,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ),
                     ),
                   ),
+
+                  const SizedBox(width: AppConstants.paddingS),
 
                   // Delivery Option
                   Expanded(
@@ -267,8 +302,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: !_isSelfPickup
-                              ? AppColors.primary
-                              : Colors.transparent,
+                              ? const Color(0xFF00695C)
+                              : const Color(0xFFE0F2F1),
                           borderRadius: BorderRadius.circular(AppConstants.radiusM),
                         ),
                         child: Column(
@@ -276,8 +311,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             Icon(
                               Icons.delivery_dining,
                               color: !_isSelfPickup
-                                  ? AppColors.textOnPrimary
-                                  : AppColors.textSecondary,
+                                  ? Colors.white
+                                  : const Color(0xFF00695C),
                               size: 28,
                             ),
                             const SizedBox(height: AppConstants.paddingXS),
@@ -285,11 +320,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               'Delivery',
                               style: AppTypography.bodyMedium.copyWith(
                                 color: !_isSelfPickup
-                                    ? AppColors.textOnPrimary
-                                    : AppColors.textPrimary,
-                                fontWeight: !_isSelfPickup
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
+                                    ? Colors.white
+                                    : const Color(0xFF00695C),
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: AppConstants.paddingXS),
@@ -297,8 +330,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                               '${AppConstants.currencySymbol}${_deliveryFee.toStringAsFixed(2)}',
                               style: AppTypography.bodySmall.copyWith(
                                 color: !_isSelfPickup
-                                    ? AppColors.textOnPrimary
-                                    : AppColors.textSecondary,
+                                    ? Colors.white
+                                    : const Color(0xFF00695C),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -309,7 +342,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   ),
                 ],
               ),
-            ),
 
             const SizedBox(height: AppConstants.paddingL),
 
@@ -338,49 +370,88 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
         const SizedBox(height: AppConstants.paddingS),
 
-        // Static Map Placeholder
+        // Static Map Placeholder with realistic design
         Container(
           height: 150,
           decoration: BoxDecoration(
-            color: AppColors.surfaceVariant,
+            color: const Color(0xFFE8E8E8),
             borderRadius: BorderRadius.circular(AppConstants.radiusM),
             border: Border.all(color: AppColors.border, width: 1),
           ),
-          child: Stack(
-            children: [
-              // Map placeholder with grid pattern
-              ClipRRect(
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.primaryLight.withOpacity(0.1),
-                        AppColors.primary.withOpacity(0.2),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppConstants.radiusM),
+            child: Stack(
+              children: [
+                // Map background with streets pattern
+                CustomPaint(
+                  size: Size.infinite,
+                  painter: _MapPainter(),
+                ),
+
+                // Blue dot (current location)
+                Positioned(
+                  left: 60,
+                  top: 60,
+                  child: Container(
+                    width: 16,
+                    height: 16,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2196F3),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          spreadRadius: 1,
+                        ),
                       ],
                     ),
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.map,
-                      size: 60,
-                      color: AppColors.primary.withOpacity(0.3),
+                ),
+
+                // Red location pin (destination)
+                Positioned(
+                  right: 50,
+                  top: 40,
+                  child: Icon(
+                    Icons.location_on,
+                    size: 36,
+                    color: const Color(0xFFE53935),
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Location recenter button (bottom right)
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.my_location,
+                      size: 20,
+                      color: Color(0xFF757575),
                     ),
                   ),
                 ),
-              ),
-
-              // Location Pin
-              Center(
-                child: Icon(
-                  Icons.location_on,
-                  size: 40,
-                  color: AppColors.error,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
 
@@ -476,7 +547,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
                 const SizedBox(height: AppConstants.paddingXS),
                 Text(
-                  '456 Jalan Sultan Ahmad Shah, Penang, 10050',
+                  'Tower 1B, Ideal Residency Jalan Lembah, Taman Tun Sardon, 11700 Gelugor, Penang',
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -529,15 +600,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               'Credit/Debit Card',
               Icons.credit_card,
               'Visa, Mastercard, Amex',
-            ),
-
-            const SizedBox(height: AppConstants.paddingS),
-
-            _buildPaymentOption(
-              'stripe',
-              'Stripe',
-              Icons.payment,
-              'Secure payment via Stripe',
+              const Color(0xFF2196F3), // Blue
             ),
 
             const SizedBox(height: AppConstants.paddingS),
@@ -547,6 +610,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               'E-Wallet',
               Icons.account_balance_wallet,
               'Touch \'n Go, GrabPay, Boost',
+              const Color(0xFFFF9800), // Orange
+            ),
+
+            const SizedBox(height: AppConstants.paddingS),
+
+            _buildPaymentOption(
+              'online_banking',
+              'Online Banking',
+              Icons.account_balance,
+              'Maybank, CIMB, Public Bank',
+              const Color(0xFF9C27B0), // Purple
+            ),
+
+            const SizedBox(height: AppConstants.paddingS),
+
+            _buildPaymentOption(
+              'cash',
+              'Cash',
+              Icons.money,
+              'Pay with cash on pickup/delivery',
+              const Color(0xFF4CAF50), // Green
             ),
           ],
         ),
@@ -560,6 +644,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     String title,
     IconData icon,
     String subtitle,
+    Color accentColor,
   ) {
     final isSelected = _selectedPaymentMethod == value;
 
@@ -570,11 +655,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         padding: const EdgeInsets.all(AppConstants.paddingM),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppColors.primary.withOpacity(0.1)
+              ? accentColor.withOpacity(0.1)
               : AppColors.surfaceVariant,
           borderRadius: BorderRadius.circular(AppConstants.radiusS),
           border: Border.all(
-            color: isSelected ? AppColors.primary : AppColors.border,
+            color: isSelected ? accentColor : AppColors.border,
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -585,13 +670,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               padding: const EdgeInsets.all(AppConstants.paddingS),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? AppColors.primary.withOpacity(0.2)
+                    ? accentColor.withOpacity(0.2)
                     : AppColors.surface,
                 borderRadius: BorderRadius.circular(AppConstants.radiusS),
               ),
               child: Icon(
                 icon,
-                color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                color: isSelected ? accentColor : AppColors.textSecondary,
                 size: 24,
               ),
             ),
@@ -607,7 +692,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     title,
                     style: AppTypography.bodyMedium.copyWith(
                       fontWeight: FontWeight.w600,
-                      color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                      color: isSelected ? accentColor : AppColors.textPrimary,
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingXS),
@@ -624,7 +709,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             // Radio Button
             Icon(
               isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: isSelected ? AppColors.primary : AppColors.textSecondary,
+              color: isSelected ? accentColor : AppColors.textSecondary,
             ),
           ],
         ),
@@ -729,7 +814,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 Text(
                   '${AppConstants.currencySymbol}${_total.toStringAsFixed(2)}',
                   style: AppTypography.h3.copyWith(
-                    color: AppColors.primary,
+                    color: const Color(0xFFFF5722),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -783,7 +868,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             child: ElevatedButton(
               onPressed: _placeOrder,
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary, // #00A86B
+                backgroundColor: const Color(0xFF00A86B),
                 padding: const EdgeInsets.symmetric(
                   vertical: AppConstants.paddingL,
                 ),
@@ -809,4 +894,89 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ),
     );
   }
+}
+
+/// Custom Painter for Map Background
+class _MapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Map background color (light gray)
+    final bgPaint = Paint()..color = const Color(0xFFE8E8E8);
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
+
+    // Street colors
+    final streetPaint = Paint()
+      ..color = const Color(0xFFD0D0D0)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+
+    final mainStreetPaint = Paint()
+      ..color = const Color(0xFFC0C0C0)
+      ..strokeWidth = 5
+      ..style = PaintingStyle.stroke;
+
+    // Draw horizontal streets
+    for (double y = 20; y < size.height; y += 30) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        y % 60 == 20 ? mainStreetPaint : streetPaint,
+      );
+    }
+
+    // Draw vertical streets
+    for (double x = 20; x < size.width; x += 30) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        x % 60 == 20 ? mainStreetPaint : streetPaint,
+      );
+    }
+
+    // Draw some building blocks (light rectangles)
+    final buildingPaint = Paint()..color = const Color(0xFFF5F5F5);
+    
+    // Building 1
+    canvas.drawRect(
+      Rect.fromLTWH(10, 10, 35, 25),
+      buildingPaint,
+    );
+    
+    // Building 2
+    canvas.drawRect(
+      Rect.fromLTWH(size.width - 60, 15, 40, 30),
+      buildingPaint,
+    );
+    
+    // Building 3
+    canvas.drawRect(
+      Rect.fromLTWH(size.width / 2 - 20, size.height - 50, 40, 35),
+      buildingPaint,
+    );
+
+    // Draw a curved road (blue line representing a river or main road)
+    final roadPaint = Paint()
+      ..color = const Color(0xFFBBDEFB)
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    final path = Path();
+    path.moveTo(0, size.height * 0.6);
+    path.quadraticBezierTo(
+      size.width * 0.3,
+      size.height * 0.4,
+      size.width * 0.6,
+      size.height * 0.7,
+    );
+    path.quadraticBezierTo(
+      size.width * 0.8,
+      size.height * 0.9,
+      size.width,
+      size.height * 0.8,
+    );
+    canvas.drawPath(path, roadPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

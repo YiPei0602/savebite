@@ -16,7 +16,9 @@ class ProfileScreen extends StatelessWidget {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text('Profile', style: AppTypography.h3),
+        centerTitle: true,
         elevation: 0,
+        backgroundColor: AppColors.background,
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -64,13 +66,23 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: CircleAvatar(
-              radius: 50,
-              backgroundColor: AppColors.surfaceVariant,
-              child: Icon(
-                Icons.person,
-                size: AppConstants.iconXL,
-                color: AppColors.primary,
+            child: ClipOval(
+              child: Container(
+                width: 100,
+                height: 100,
+                color: AppColors.surfaceVariant,
+                child: Image.asset(
+                  'assets/images/suzy.png',
+                  fit: BoxFit.cover,
+                  alignment: Alignment(0, -0.3), // Shift image down to show more of lower part
+                  errorBuilder: (context, error, stackTrace) {
+                    return Icon(
+                      Icons.person,
+                      size: AppConstants.iconXL,
+                      color: AppColors.primary,
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -79,7 +91,7 @@ class ProfileScreen extends StatelessWidget {
           
           // User Name
           Text(
-            'John Doe',
+            'Evelyn Liu',
             style: AppTypography.h2,
           ),
           
@@ -87,7 +99,7 @@ class ProfileScreen extends StatelessWidget {
           
           // Email
           Text(
-            'john.doe@example.com',
+            'evelyn922@gmail.com',
             style: AppTypography.bodyMedium.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -97,172 +109,227 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  /// Impact Dashboard (Crucial Feature)
-  /// Dark Green background with 3 statistics in white text
+  /// Impact Dashboard (Image 2 Style)
+  /// Clean layout with 2 metric tiles + 1 hero tile with bag image
   Widget _buildImpactDashboard() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(AppConstants.paddingXL),
-        decoration: BoxDecoration(
-          // Dark Green gradient based on #00A86B
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              AppColors.primaryDark,      // Darker green
-              AppColors.primary,          // #00A86B
-              AppColors.primaryDark,      // Darker green
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Text(
+            'Your impact',
+            style: AppTypography.h2.copyWith(
+              color: AppColors.primary,
+            ),
+          ),
+          
+          const SizedBox(height: AppConstants.paddingM),
+          
+          // Row of 2 metric tiles
+          Row(
+            children: [
+              // Money Saved Tile
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'Money saved',
+                  value: 'RM 581',
+                  icon: Icons.payments_outlined,
+                ),
+              ),
+              
+              const SizedBox(width: AppConstants.paddingM),
+              
+              // CO2e Saved Tile
+              Expanded(
+                child: _buildMetricTile(
+                  label: 'CO2e saved',
+                  value: '140 kg',
+                  icon: Icons.cloud_outlined,
+                ),
+              ),
             ],
           ),
-          borderRadius: BorderRadius.circular(AppConstants.radiusL),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withOpacity(0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            // Dashboard Title
-            Row(
-              children: [
-                Icon(
-                  Icons.eco,
-                  color: AppColors.textOnPrimary,
-                  size: 24,
-                ),
-                const SizedBox(width: AppConstants.paddingS),
-                Text(
-                  'Your Impact',
-                  style: AppTypography.h4.copyWith(
-                    color: AppColors.textOnPrimary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: AppConstants.paddingL),
-            
-            // 3 Statistics in a Row (White Text)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                // 1. Meals Saved
-                _buildImpactStat(
-                  icon: Icons.restaurant,
-                  value: '12',
-                  label: 'Meals Saved',
-                ),
-                
-                // Divider
-                Container(
-                  height: 60,
-                  width: 1,
-                  color: AppColors.textOnPrimary.withOpacity(0.3),
-                ),
-                
-                // 2. Money Saved
-                _buildImpactStat(
-                  icon: Icons.savings,
-                  value: 'RM 145',
-                  label: 'Money Saved',
-                ),
-                
-                // Divider
-                Container(
-                  height: 60,
-                  width: 1,
-                  color: AppColors.textOnPrimary.withOpacity(0.3),
-                ),
-                
-                // 3. CO2 Prevented
-                _buildImpactStat(
-                  icon: Icons.co2,
-                  value: '5kg',
-                  label: 'CO₂ Prevented',
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: AppConstants.paddingL),
-            
-            // View Details Button
-            TextButton(
-              onPressed: () {
-                // TODO: Navigate to detailed impact dashboard
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.textOnPrimary,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'View Detailed Impact',
-                    style: AppTypography.bodyMedium.copyWith(
-                      color: AppColors.textOnPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.paddingXS),
-                  Icon(
-                    Icons.arrow_forward,
-                    size: 16,
-                    color: AppColors.textOnPrimary,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          
+          const SizedBox(height: AppConstants.paddingM),
+          
+          // Hero Tile - Surprise Bags Saved
+          _buildHeroTile(),
+        ],
       ),
     );
   }
 
-  /// Impact Statistic Widget
-  Widget _buildImpactStat({
-    required IconData icon,
-    required String value,
+  /// Metric Tile Widget (Money saved, CO2e saved)
+  Widget _buildMetricTile({
     required String label,
+    required String value,
+    required IconData icon,
   }) {
-    return Expanded(
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.paddingM),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(
+          color: AppColors.divider,
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Icon
           Icon(
             icon,
-            color: AppColors.textOnPrimary,
-            size: 28,
+            color: AppColors.primary,
+            size: 32,
           ),
           
           const SizedBox(height: AppConstants.paddingS),
           
-          // Value (White Text)
+          // Label
           Text(
-            value,
-            style: AppTypography.h3.copyWith(
-              color: AppColors.textOnPrimary,
+            label,
+            style: AppTypography.bodyMedium.copyWith(
+              color: AppColors.primary,
               fontWeight: FontWeight.bold,
             ),
           ),
           
           const SizedBox(height: AppConstants.paddingXS),
           
-          // Label (White Text)
+          // Value
           Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.textOnPrimary.withOpacity(0.9),
+            value,
+            style: AppTypography.h2.copyWith(
+              color: AppColors.primary,
+              fontWeight: FontWeight.bold,
             ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
           ),
         ],
+      ),
+    );
+  }
+  
+  /// Hero Tile Widget (Surprise Bags saved with image)
+  Widget _buildHeroTile() {
+    return Container(
+      width: double.infinity,
+      height: 160,
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        child: Row(
+          children: [
+            // Left: Bag Image/Icon
+            Expanded(
+              flex: 2,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.primaryDark,
+                      AppColors.primary,
+                    ],
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    // Background pattern (optional decorative circles)
+                    Positioned(
+                      top: -20,
+                      left: -20,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.textOnPrimary.withOpacity(0.1),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: -30,
+                      right: -30,
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.textOnPrimary.withOpacity(0.05),
+                        ),
+                      ),
+                    ),
+                    // Shopping bag icon
+                    Center(
+                      child: Icon(
+                        Icons.shopping_bag,
+                        size: 72,
+                        color: AppColors.textOnPrimary.withOpacity(0.9),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Right: Text Content
+            Expanded(
+              flex: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.paddingL),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Label
+                    Text(
+                      'Meals\nsaved',
+                      style: AppTypography.h5.copyWith(
+                        color: AppColors.textOnPrimary,
+                        fontWeight: FontWeight.bold,
+                        height: 1.3,
+                      ),
+                    ),
+                    
+                    const SizedBox(height: AppConstants.paddingS),
+                    
+                    // Value
+                    Text(
+                      '53',
+                      style: AppTypography.h1.copyWith(
+                        color: AppColors.textOnPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 48,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -178,6 +178,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text('Order Tracking', style: AppTypography.h3),
+        backgroundColor: AppColors.background,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),

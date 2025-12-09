@@ -1,0 +1,9 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Teal Shopping Bag with "Too Good To Go" style -->
+  <rect x="40" y="60" width="120" height="120" rx="8" fill="#00615F"/>
+  <path d="M60 60 L60 50 Q60 30 80 30 L120 30 Q140 30 140 50 L140 60" stroke="#004643" stroke-width="4" fill="none"/>
+  <circle cx="100" cy="110" r="25" fill="#F9F3F0" opacity="0.9"/>
+  <path d="M85 110 Q100 95 115 110 Q100 125 85 110" fill="#00615F"/>
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="12" fill="#F9F3F0" text-anchor="middle" font-weight="bold">TOO GOOD</text>
+  <text x="100" y="175" font-family="Arial, sans-serif" font-size="12" fill="#F9F3F0" text-anchor="middle" font-weight="bold">TO GO</text>
+</svg>

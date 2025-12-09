@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_typography.dart';
 import '../core/constants/app_constants.dart';
-import '../core/widgets/header_clipper.dart';
+import '../providers/food_provider.dart';
+import '../models/food_item_model.dart';
+import '../utils/price_utils.dart';
 import 'merchant_details_screen.dart';
-import 'category_listing_screen.dart';
 
 /// Home Screen
 /// 
-/// Main feed showing surplus food items near the user's location.
-/// Features: Location selector, search bar, category filters, and food cards.
+/// Main feed showing surplus food items with dynamic pricing.
+/// Features: Search, category filters, dietary filters, location selector.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -18,74 +21,35 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  String _selectedLocation = 'Penang';
-  String _selectedCategory = '';
-  String _selectedMode = 'Delivery';
-  bool _nearMeOnly = false;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
 
-  // Dummy data for surplus food items
-  final List<Map<String, dynamic>> _surplusItems = [
-    {
-      'restaurantName': 'Nasi Kandar Pelita',
-      'imageUrl': 'https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=800',
-      'distance': 2.3,
-      'rating': 4.5,
-      'originalPrice': 25.00,
-      'discountedPrice': 12.50,
-      'closingSoon': true,
-      'category': 'Halal',
-    },
-    {
-      'restaurantName': 'The Baker\'s Cottage',
-      'imageUrl': 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=800',
-      'distance': 1.8,
-      'rating': 4.7,
-      'originalPrice': 18.00,
-      'discountedPrice': 8.00,
-      'closingSoon': true,
-      'category': 'Bakery',
-    },
-    {
-      'restaurantName': 'Green Leaf Cafe',
-      'imageUrl': 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800',
-      'distance': 3.5,
-      'rating': 4.3,
-      'originalPrice': 22.00,
-      'discountedPrice': 11.00,
-      'closingSoon': false,
-      'category': 'Vegetarian',
-    },
-    {
-      'restaurantName': 'KFC Gurney Plaza',
-      'imageUrl': 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=800',
-      'distance': 4.2,
-      'rating': 4.6,
-      'originalPrice': 30.00,
-      'discountedPrice': 15.00,
-      'closingSoon': true,
-      'category': 'Fast Food',
-    },
-    {
-      'restaurantName': 'Mystery Bag - Baker\'s Surprise',
-      'imageUrl': 'https://images.unsplash.com/photo-1519681393784-d120267933ba?w=800',
-      'distance': 1.2,
-      'rating': 4.2,
-      'originalPrice': 28.00,
-      'discountedPrice': 10.00,
-      'closingSoon': false,
-      'category': 'Mystery Bag',
-    },
-    {
-      'restaurantName': 'Bubble Tea Station',
-      'imageUrl': 'https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=800',
-      'distance': 2.8,
-      'rating': 4.4,
-      'originalPrice': 15.00,
-      'discountedPrice': 7.50,
-      'closingSoon': false,
-      'category': 'Beverages',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    // Load food items if not already loaded
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final foodProvider = context.read<FoodProvider>();
+      if (foodProvider.allFoodItems.isEmpty && !foodProvider.isLoading) {
+        foodProvider.loadFoodItems();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    // Debounce search input (300ms)
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      context.read<FoodProvider>().searchFoodItems(query);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -95,10 +59,13 @@ class _HomeScreenState extends State<HomeScreen> {
         physics: const BouncingScrollPhysics(),
         child: Column(
           children: [
-            // Top Section: Location, Tagline & Search (extends into SafeArea)
+            // Top Section: Location, Tagline & Search
             _buildTopSection(),
             
-            // Categories Section with title
+            // Dietary Filters
+            _buildDietaryFilters(),
+            
+            // Categories Section
             _buildCategoriesSection(),
             
             // Main Feed: Surplus Near You
@@ -117,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
         Stack(
           clipBehavior: Clip.none,
           children: [
-            // Header background with custom curve clipper
+            // Header background
             Container(
               height: headerHeight,
               width: double.infinity,
@@ -157,19 +124,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             _buildLocationSelector(),
                             const SizedBox(height: AppConstants.paddingM),
                             Text(
-                              'Looking For\nSomething New?\nGot It!',
+                              'Looking to\nSave Meals,\nSave Money?\nGet It!',
                               style: AppTypography.h4.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
-                                height: 1.3,
-                                fontSize: 24,
+                                height: 1.2,
+                                fontSize: 28,
                               ),
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(width: AppConstants.paddingS),
-                      // Right: Hero image (bag) - positioned lower and to the right
+                      // Right: Hero image
                       Padding(
                         padding: const EdgeInsets.only(left: 8, top: 16),
                         child: Container(
@@ -182,15 +149,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             'assets/images/bag.png',
                             fit: BoxFit.contain,
                             errorBuilder: (context, error, stackTrace) {
-                              // Fallback to mysterybag if bag.png fails
-                              return Image.asset(
-                                'assets/images/mysterybag.png',
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => Icon(
-                                  Icons.fastfood,
-                                  size: 80,
-                                  color: Colors.white.withOpacity(0.5),
-                                ),
+                              return Icon(
+                                Icons.fastfood,
+                                size: 80,
+                                color: Colors.white.withOpacity(0.5),
                               );
                             },
                           ),
@@ -217,61 +179,65 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Location Selector with Dropdown
   Widget _buildLocationSelector() {
-    return InkWell(
-      onTap: () {
-        _showLocationPicker();
+    return Consumer<FoodProvider>(
+      builder: (context, foodProvider, child) {
+        final selectedLocation = foodProvider.selectedLocation ?? 'Penang';
+        
+        return InkWell(
+          onTap: () => _showLocationPicker(),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.paddingM,
+              vertical: AppConstants.paddingS,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(AppConstants.radiusL),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: const BoxDecoration(
+                    color: AppColors.error,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: Icon(Icons.place, size: 14, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: AppConstants.paddingXS),
+                Text(
+                  selectedLocation,
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: AppConstants.paddingXS),
+                const Icon(
+                  Icons.keyboard_arrow_down,
+                  color: AppColors.textSecondary,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        );
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.paddingM,
-          vertical: AppConstants.paddingS,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(AppConstants.radiusL),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 22,
-              height: 22,
-              decoration: const BoxDecoration(
-                color: AppColors.error,
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: Icon(Icons.place, size: 14, color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: AppConstants.paddingXS),
-            Text(
-              _selectedLocation,
-              style: AppTypography.bodyMedium.copyWith(
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(width: AppConstants.paddingXS),
-            const Icon(
-              Icons.keyboard_arrow_down,
-              color: AppColors.textSecondary,
-              size: 18,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
-  /// Prominent Search Bar
+  /// Search Bar with Debounce
   Widget _buildSearchBar() {
     return Container(
       decoration: BoxDecoration(
@@ -290,236 +256,332 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       child: TextField(
+        controller: _searchController,
+        onChanged: _onSearchChanged,
         decoration: InputDecoration(
           hintText: 'Search for surplus food...',
           hintStyle: AppTypography.bodyMedium.copyWith(
             color: AppColors.textTertiary,
           ),
-          prefixIcon: Icon(
+          prefixIcon: const Icon(
             Icons.search,
             color: AppColors.textSecondary,
           ),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, color: AppColors.textSecondary),
+                  onPressed: () {
+                    _searchController.clear();
+                    context.read<FoodProvider>().searchFoodItems('');
+                  },
+                )
+              : null,
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: AppConstants.paddingM,
             vertical: AppConstants.paddingM,
           ),
         ),
-        onTap: () {
-          // TODO: Navigate to search screen
-        },
       ),
     );
   }
 
-  /// Categories: 2x3 Grid Layout with Premium Tiles
-  Widget _buildCategoriesSection() {
-    final categories = [
-      {'label': 'Mystery Bag', 'asset': 'assets/icons/mystery_bag.png', 'fallback': Icons.card_giftcard},
-      {'label': 'Meals', 'asset': 'assets/icons/meals.png', 'fallback': Icons.lunch_dining},
-      {'label': 'Desserts', 'asset': 'assets/icons/desserts.png', 'fallback': Icons.cake},
-      {'label': 'Bread', 'asset': 'assets/icons/bread.png', 'fallback': Icons.bakery_dining},
-      {'label': 'Beverages', 'asset': 'assets/icons/beverages.png', 'fallback': Icons.local_drink_outlined},
-      {'label': 'Snacks', 'asset': 'assets/icons/snacks.png', 'fallback': Icons.fastfood},
-    ];
+  /// Dietary Filters (Horizontal Chips)
+  Widget _buildDietaryFilters() {
+    return Consumer<FoodProvider>(
+      builder: (context, foodProvider, child) {
+        final dietaryTags = [
+          DietaryTag.halal,
+          DietaryTag.vegetarian,
+          DietaryTag.vegan,
+          DietaryTag.glutenFree,
+        ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section title
-        Padding(
-          padding: const EdgeInsets.only(
-            left: AppConstants.paddingM,
-            right: AppConstants.paddingM,
-            bottom: 0,
-          ),
-          child: Text(
-            'Category',
-            style: AppTypography.h4.copyWith(
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-              height: 1.0,
-            ),
-          ),
-        ),
-        // Grid
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
-          child: Transform.translate(
-            offset: const Offset(0, -6),
-            child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 14,
-              crossAxisSpacing: 14,
-              childAspectRatio: 0.9,
-            ),
-            itemCount: categories.length,
+        return Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingS),
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
+            itemCount: dietaryTags.length,
             itemBuilder: (context, index) {
-              final c = categories[index];
-              final String label = c['label'] as String;
-              final bool isSelected = _selectedCategory == label;
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedCategory = label;
-                    _nearMeOnly = false;
-                  });
-                  final filtered = _filterByCategory(label);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => CategoryListingScreen(
-                        category: label,
-                        items: filtered,
-                      ),
-                    ),
-                  );
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.primary.withOpacity(0.08),
-                        AppColors.primary.withOpacity(0.06),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: isSelected ? AppColors.primary : AppColors.border.withOpacity(0.25),
-                      width: isSelected ? 2 : 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.04),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+              final tag = dietaryTags[index];
+              final isSelected = foodProvider.selectedDietaryTags.contains(tag);
+              final tagName = tag.toString().split('.').last;
+              final displayName = tagName[0].toUpperCase() + tagName.substring(1);
+
+              return Padding(
+                padding: const EdgeInsets.only(right: AppConstants.paddingS),
+                child: FilterChip(
+                  label: Text(displayName),
+                  selected: isSelected,
+                  onSelected: (_) => foodProvider.toggleDietaryTag(tag),
+                  backgroundColor: AppColors.surface,
+                  selectedColor: AppColors.accent,
+                  labelStyle: AppTypography.bodySmall.copyWith(
+                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Frosted circle hosting the colorful asset icon
-                      Container(
-                        width: 64,
-                        height: 64,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(18),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Image.asset(
-                            c['asset'] as String,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => Icon(
-                              c['fallback'] as IconData,
-                              color: AppColors.primary,
-                              size: 32,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        label,
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
+                  checkmarkColor: Colors.white,
                 ),
               );
             },
           ),
-          ),
-        ),
-      ],
+        );
+      },
+    );
+  }
+
+  /// Categories: 2x3 Grid Layout (Multi-select)
+  Widget _buildCategoriesSection() {
+    final categories = [
+      {'label': 'Mystery Bag', 'category': FoodCategory.mysteryBag, 'icon': Icons.card_giftcard},
+      {'label': 'Meals', 'category': FoodCategory.preparedMeals, 'icon': Icons.lunch_dining},
+      {'label': 'Desserts', 'category': FoodCategory.desserts, 'icon': Icons.cake},
+      {'label': 'Bread', 'category': FoodCategory.bakery, 'icon': Icons.bakery_dining},
+      {'label': 'Beverages', 'category': FoodCategory.beverages, 'icon': Icons.local_drink_outlined},
+      {'label': 'Snacks', 'category': FoodCategory.snacks, 'icon': Icons.fastfood},
+    ];
+
+    return Consumer<FoodProvider>(
+      builder: (context, foodProvider, child) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(
+                left: AppConstants.paddingM,
+                right: AppConstants.paddingM,
+                bottom: 0,
+              ),
+              child: Text(
+                'Category',
+                style: AppTypography.h4.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                  height: 1.0,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
+              child: Transform.translate(
+                offset: const Offset(0, -6),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 14,
+                    crossAxisSpacing: 14,
+                    childAspectRatio: 0.9,
+                  ),
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    final c = categories[index];
+                    final String label = c['label'] as String;
+                    final FoodCategory category = c['category'] as FoodCategory;
+                    final bool isSelected = foodProvider.selectedCategories.contains(category);
+                    
+                    return GestureDetector(
+                      onTap: () => foodProvider.toggleCategory(category),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              AppColors.primary.withOpacity(0.08),
+                              AppColors.primary.withOpacity(0.06),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: isSelected ? AppColors.primary : AppColors.border.withOpacity(0.25),
+                            width: isSelected ? 2 : 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 64,
+                              height: 64,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(18),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.06),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                c['icon'] as IconData,
+                                color: AppColors.primary,
+                                size: 32,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              label,
+                              style: AppTypography.bodyMedium.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
   /// Main Feed: Surplus Near You
   Widget _buildSurplusFeed() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section Header
-        Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingM),
-          child: Text(
-            'Surplus Near You',
-            style: AppTypography.h4,
-          ),
-        ),
+    return Consumer<FoodProvider>(
+      builder: (context, foodProvider, child) {
+        if (foodProvider.isLoading) {
+          return const Padding(
+            padding: EdgeInsets.all(AppConstants.paddingXL),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
 
-        // Food Cards List (shrink-wrapped inside SingleChildScrollView)
-        ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
-          itemCount: _surplusItems.length,
-          itemBuilder: (context, index) {
-            final item = _surplusItems[index];
-            return _buildSurplusCard(item);
-          },
-        ),
-      ],
+        if (foodProvider.errorMessage != null) {
+          return Padding(
+            padding: const EdgeInsets.all(AppConstants.paddingXL),
+            child: Center(
+              child: Column(
+                children: [
+                  const Icon(Icons.error_outline, size: 64, color: AppColors.error),
+                  const SizedBox(height: AppConstants.paddingM),
+                  Text(
+                    'Error loading items',
+                    style: AppTypography.h5,
+                  ),
+                  const SizedBox(height: AppConstants.paddingS),
+                  Text(
+                    foodProvider.errorMessage!,
+                    style: AppTypography.bodySmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppConstants.paddingM),
+                  ElevatedButton(
+                    onPressed: () => foodProvider.loadFoodItems(),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final items = foodProvider.displayedFoodItems;
+
+        if (items.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(AppConstants.paddingXL),
+            child: Center(
+              child: Column(
+                children: [
+                  const Icon(Icons.search_off, size: 64, color: AppColors.textSecondary),
+                  const SizedBox(height: AppConstants.paddingM),
+                  Text(
+                    'No items found',
+                    style: AppTypography.h5,
+                  ),
+                  const SizedBox(height: AppConstants.paddingS),
+                  Text(
+                    'Try adjusting your filters',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.paddingM),
+                  OutlinedButton(
+                    onPressed: () {
+                      _searchController.clear();
+                      foodProvider.clearFilters();
+                    },
+                    child: const Text('Clear Filters'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(AppConstants.paddingM),
+              child: Text(
+                'Surplus Near You (${items.length})',
+                style: AppTypography.h4,
+              ),
+            ),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return _buildSurplusCard(item);
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
-  List<Map<String, dynamic>> get _filteredItems => _filterByCategory(_selectedCategory);
+  /// Surplus Food Card with Dynamic Pricing
+  Widget _buildSurplusCard(FoodItemModel item) {
+    // Compute dynamic discount and price
+    final discountRange = item.discountRange;
+    final int currentDiscount = discountRange != null
+        ? PriceUtils.computeDynamicDiscount(
+            minPercent: discountRange.minPercent,
+            maxPercent: discountRange.maxPercent,
+            closingTime: item.closingTime,
+          )
+        : item.discountPercentage;
 
-  List<Map<String, dynamic>> _filterByCategory(String category) {
-    Iterable<Map<String, dynamic>> items = _surplusItems;
-    switch (category) {
-      case 'Mystery Bag':
-        items = items.where((e) => (e['category'] as String) == 'Mystery Bag');
-        break;
-      case 'Meals':
-        items = items.where((e) => (e['category'] as String) == 'Halal' || (e['category'] as String) == 'Fast Food');
-        break;
-      case 'Desserts':
-        items = items.where((e) => (e['category'] as String) == 'Bakery');
-        break;
-      case 'Bread':
-        items = items.where((e) => (e['category'] as String) == 'Bakery');
-        break;
-      case 'Beverages':
-        items = items.where((e) => (e['category'] as String) == 'Beverages');
-        break;
-      case 'Snacks':
-        items = items.where((e) => (e['category'] as String) == 'Fast Food');
-        break;
-      default:
-        // show all
-        break;
-    }
-    if (_nearMeOnly) {
-      items = items.where((e) => (e['distance'] as double) <= 3.0);
-    }
-    return items.toList();
-  }
+    final double dynamicPrice = PriceUtils.computeDiscountedPrice(
+      originalPrice: item.originalPrice,
+      discountPercent: currentDiscount,
+    );
 
-  /// Surplus Food Card
-  Widget _buildSurplusCard(Map<String, dynamic> item) {
+    final bool isClosingSoon = PriceUtils.isClosingSoon(
+      closingTime: item.closingTime,
+      thresholdMinutes: 30,
+    );
+
+    final String timeRemaining = PriceUtils.formatTimeRemaining(item.closingTime);
+
     return Card(
       margin: const EdgeInsets.only(bottom: AppConstants.paddingM),
       clipBehavior: Clip.antiAlias,
@@ -529,14 +591,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: InkWell(
         onTap: () {
-          // Navigate to merchant details screen
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => MerchantDetailsScreen(
-                merchantName: item['restaurantName'] as String,
-                imageUrl: item['imageUrl'] as String,
-                rating: item['rating'] as double,
+                merchantName: item.merchantName,
+                imageUrl: item.imageUrl,
+                rating: item.rating ?? 4.5,
                 pickupHoursRemaining: 2,
               ),
             ),
@@ -546,7 +607,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Food Image
-            _buildCardImage(item['imageUrl'] as String),
+            _buildCardImage(item.imageUrl),
 
             // Card Content
             Padding(
@@ -556,38 +617,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   // Restaurant Name
                   Text(
-                    item['restaurantName'] as String,
+                    item.merchantName,
                     style: AppTypography.h5,
                   ),
 
                   const SizedBox(height: AppConstants.paddingS),
 
-                  // Distance & Rating Row
+                  // Rating & Closing Soon Row
                   Row(
                     children: [
-                      // Distance
-                      Icon(
-                        Icons.location_on,
-                        size: 16,
-                        color: AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: AppConstants.paddingXS),
-                      Text(
-                        '${item['distance']} km',
-                        style: AppTypography.bodySmall,
-                      ),
-
-                      const SizedBox(width: AppConstants.paddingM),
-
                       // Rating
-                      Icon(
+                      const Icon(
                         Icons.star,
                         size: 16,
                         color: AppColors.warning,
                       ),
                       const SizedBox(width: AppConstants.paddingXS),
                       Text(
-                        '${item['rating']}',
+                        '${item.rating ?? 4.5}',
                         style: AppTypography.bodySmall.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
@@ -595,8 +642,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const Spacer(),
 
-                      // Closing Soon Tag
-                      if (item['closingSoon'] as bool)
+                      // Closing Soon Tag with Countdown
+                      if (isClosingSoon)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppConstants.paddingS,
@@ -609,14 +656,14 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.access_time,
                                 size: 12,
                                 color: AppColors.error,
                               ),
                               const SizedBox(width: AppConstants.paddingXS),
                               Text(
-                                'Closing Soon',
+                                timeRemaining,
                                 style: AppTypography.caption.copyWith(
                                   color: AppColors.error,
                                   fontWeight: FontWeight.w600,
@@ -630,12 +677,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   const SizedBox(height: AppConstants.paddingM),
 
-                  // Price Section
+                  // Dynamic Price Section
                   Row(
                     children: [
                       // Original Price (Strikethrough)
                       Text(
-                        '${AppConstants.currencySymbol}${item['originalPrice'].toStringAsFixed(2)}',
+                        '${AppConstants.currencySymbol}${item.originalPrice.toStringAsFixed(2)}',
                         style: AppTypography.bodyMedium.copyWith(
                           decoration: TextDecoration.lineThrough,
                           color: AppColors.textSecondary,
@@ -644,18 +691,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(width: AppConstants.paddingS),
 
-                      // Discounted Price (Orange, Bold)
+                      // Dynamic Discounted Price (Orange, Bold)
                       Text(
-                        '${AppConstants.currencySymbol}${item['discountedPrice'].toStringAsFixed(2)}',
+                        '${AppConstants.currencySymbol}${dynamicPrice.toStringAsFixed(2)}',
                         style: AppTypography.h5.copyWith(
-                          color: AppColors.accent, // Bright Orange
+                          color: AppColors.accent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
 
                       const Spacer(),
 
-                      // Discount Percentage
+                      // Dynamic Discount Percentage
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: AppConstants.paddingS,
@@ -666,7 +713,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           borderRadius: BorderRadius.circular(AppConstants.radiusS),
                         ),
                         child: Text(
-                          '-${((1 - (item['discountedPrice'] as double) / (item['originalPrice'] as double)) * 100).toInt()}%',
+                          '-$currentDiscount%',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textOnAccent,
                             fontWeight: FontWeight.bold,
@@ -686,65 +733,61 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Card Image with Placeholder
   Widget _buildCardImage(String imageUrl) {
-    return Stack(
-      children: [
-        // Image
-        Container(
-          height: 200,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceVariant,
-          ),
-          child: Image.network(
-            imageUrl,
+    return Container(
+      height: 200,
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: AppColors.surfaceVariant,
+      ),
+      child: Image.network(
+        imageUrl,
+        height: 200,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
             height: 200,
-            width: double.infinity,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              // Fallback to colored placeholder
-              return Container(
-                height: 200,
-                color: AppColors.primaryLight.withOpacity(0.3),
-                child: Center(
-                  child: Icon(
-                    Icons.fastfood,
-                    size: 60,
-                    color: AppColors.primary.withOpacity(0.5),
-                  ),
-                ),
-              );
-            },
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Container(
-                height: 200,
-                color: AppColors.surfaceVariant,
-                child: Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                    color: AppColors.primary,
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ],
+            color: AppColors.primaryLight.withOpacity(0.3),
+            child: Center(
+              child: Icon(
+                Icons.fastfood,
+                size: 60,
+                color: AppColors.primary.withOpacity(0.5),
+              ),
+            ),
+          );
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            height: 200,
+            color: AppColors.surfaceVariant,
+            child: Center(
+              child: CircularProgressIndicator(
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                        loadingProgress.expectedTotalBytes!
+                    : null,
+                color: AppColors.primary,
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
   /// Show Location Picker Dialog
   void _showLocationPicker() {
+    final foodProvider = context.read<FoodProvider>();
+    final locations = foodProvider.getAvailableLocations();
+    
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusL)),
       ),
       builder: (context) {
-        final locations = ['Penang', 'Kuala Lumpur', 'Johor Bahru', 'Ipoh', 'Melaka'];
         return Container(
           padding: const EdgeInsets.all(AppConstants.paddingL),
           child: Column(
@@ -757,29 +800,24 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: AppConstants.paddingM),
               ...locations.map((location) {
+                final isSelected = foodProvider.selectedLocation == location;
                 return ListTile(
                   leading: Icon(
                     Icons.location_on,
-                    color: location == _selectedLocation
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
+                    color: isSelected ? AppColors.primary : AppColors.textSecondary,
                   ),
                   title: Text(
                     location,
                     style: AppTypography.bodyMedium.copyWith(
-                      fontWeight: location == _selectedLocation
-                          ? FontWeight.w600
-                          : FontWeight.normal,
-                      color: location == _selectedLocation
-                          ? AppColors.primary
-                          : AppColors.textPrimary,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isSelected ? AppColors.primary : AppColors.textPrimary,
                     ),
                   ),
-                  trailing: location == _selectedLocation
+                  trailing: isSelected
                       ? const Icon(Icons.check, color: AppColors.primary)
                       : null,
                   onTap: () {
-                    setState(() => _selectedLocation = location);
+                    foodProvider.setLocation(location);
                     Navigator.pop(context);
                   },
                 );
@@ -790,6 +828,4 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
-
-
 }

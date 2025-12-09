@@ -23,6 +23,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text('Marketplace', style: AppTypography.h3),
+        backgroundColor: AppColors.background,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.search),

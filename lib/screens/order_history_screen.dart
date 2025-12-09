@@ -329,6 +329,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text('Past Orders', style: AppTypography.h3),
+        backgroundColor: AppColors.background,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list),

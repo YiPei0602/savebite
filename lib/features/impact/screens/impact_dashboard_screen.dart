@@ -15,6 +15,8 @@ class ImpactDashboardScreen extends StatelessWidget {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text('Your Impact', style: AppTypography.h3),
+        backgroundColor: AppColors.background,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppConstants.paddingL),
