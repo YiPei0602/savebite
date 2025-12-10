@@ -10,7 +10,7 @@ class AppConstants {
   // ============================================================================
   static const String appName = 'SaveBite';
   static const String appVersion = '1.0.0';
-  static const String appTagline = 'Rescue Food, Save the Planet';
+  static const String appTagline = 'Fresh Food. Half Price. Zero Waste.';
 
   // ============================================================================
   // SPACING & SIZING

@@ -241,7 +241,7 @@ class FoodProvider with ChangeNotifier {
   /// Get available locations (mock data)
   /// TODO: Replace with Firebase query for unique merchant locations
   List<String> getAvailableLocations() {
-    return ['Penang', 'Kuala Lumpur', 'Johor Bahru', 'Ipoh', 'Melaka'];
+    return ['Penang', 'Kuala Lumpur', 'Johor Bahru', 'Selangor', 'Melaka'];
   }
 
   /// Clear error message

@@ -124,12 +124,13 @@ class _HomeScreenState extends State<HomeScreen> {
                             _buildLocationSelector(),
                             const SizedBox(height: AppConstants.paddingM),
                             Text(
-                              'Looking to\nSave Meals,\nSave Money?\nGet It!',
+                              'Fresh Food.\nHalf Price.\nZero Waste.',
                               style: AppTypography.h4.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
-                                height: 1.2,
-                                fontSize: 28,
+                                height: 1.3,
+                                fontSize: 32,
+                                letterSpacing: 0.5,
                               ),
                             ),
                           ],

@@ -744,7 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.radiusL)),
       ),
       builder: (context) {
-        final locations = ['Penang', 'Kuala Lumpur', 'Johor Bahru', 'Ipoh', 'Melaka'];
+        final locations = ['Penang', 'Kuala Lumpur', 'Johor Bahru', 'Selangor', 'Melaka'];
         return Container(
           padding: const EdgeInsets.all(AppConstants.paddingL),
           child: Column(
