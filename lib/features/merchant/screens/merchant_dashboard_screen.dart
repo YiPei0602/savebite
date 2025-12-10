@@ -266,167 +266,192 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          // Image
-          ClipRRect(
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(AppConstants.radiusM),
-              bottomLeft: Radius.circular(AppConstants.radiusM),
-            ),
-            child: Stack(
-              children: [
-                Image.network(
-                  item['imageUrl'],
-                  width: 100,
-                  height: 100,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      width: 100,
-                      height: 100,
-                      color: AppColors.background,
-                      child: Icon(
-                        Icons.fastfood,
-                        color: AppColors.textSecondary,
-                      ),
-                    );
-                  },
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Image - Fixed width with constraints
+            SizedBox(
+              width: 100,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(AppConstants.radiusM),
+                  bottomLeft: Radius.circular(AppConstants.radiusM),
                 ),
-                if (isSoldOut)
-                  Container(
-                    width: 100,
-                    height: 100,
-                    color: Colors.black.withOpacity(0.6),
-                    child: Center(
-                      child: Text(
-                        'SOLD OUT',
-                        style: AppTypography.caption.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.network(
+                      item['imageUrl'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: AppColors.background,
+                          child: Icon(
+                            Icons.fastfood,
+                            color: AppColors.textSecondary,
+                          ),
+                        );
+                      },
                     ),
-                  ),
-              ],
-            ),
-          ),
-          
-          // Content
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item['name'],
-                          style: AppTypography.h5,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                    if (isSoldOut)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.accent.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '$discount% OFF',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.accent,
-                            fontWeight: FontWeight.bold,
+                        color: Colors.black.withOpacity(0.6),
+                        child: Center(
+                          child: Text(
+                            'SOLD OUT',
+                            style: AppTypography.caption.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item['category'],
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.textSecondary,
+                  ],
+                ),
+              ),
+            ),
+            
+            // Content - Flexible to fill remaining space
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Top section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item['name'],
+                                style: AppTypography.h5,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '$discount% OFF',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          item['category'],
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    // Bottom section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'RM ${item['originalPrice'].toStringAsFixed(2)}',
+                                style: AppTypography.bodySmall.copyWith(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'RM ${item['discountedPrice'].toStringAsFixed(2)}',
+                              style: AppTypography.h5.copyWith(
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.inventory_2_outlined,
+                              size: 14,
+                              color: isSoldOut ? AppColors.error : AppColors.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${item['quantity']} left',
+                              style: AppTypography.caption.copyWith(
+                                color: isSoldOut ? AppColors.error : AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            // Actions - Fixed width
+            SizedBox(
+              width: 40,
+              child: PopupMenuButton<String>(
+                icon: Icon(
+                  Icons.more_vert,
+                  color: AppColors.textSecondary,
+                ),
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    context.push('/edit-surplus/${item['id']}');
+                  } else if (value == 'delete') {
+                    _showDeleteDialog(item['name']);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_outlined, size: 20),
+                        SizedBox(width: 12),
+                        Text('Edit'),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        'RM ${item['originalPrice'].toStringAsFixed(2)}',
-                        style: AppTypography.bodySmall.copyWith(
-                          decoration: TextDecoration.lineThrough,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'RM ${item['discountedPrice'].toStringAsFixed(2)}',
-                        style: AppTypography.h5.copyWith(
-                          color: AppColors.accent,
-                        ),
-                      ),
-                      const Spacer(),
-                      Icon(
-                        Icons.inventory_2_outlined,
-                        size: 16,
-                        color: isSoldOut ? AppColors.error : AppColors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${item['quantity']} left',
-                        style: AppTypography.caption.copyWith(
-                          color: isSoldOut ? AppColors.error : AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                        SizedBox(width: 12),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-          
-          // Actions
-          PopupMenuButton<String>(
-            icon: Icon(
-              Icons.more_vert,
-              color: AppColors.textSecondary,
-            ),
-            onSelected: (value) {
-              if (value == 'edit') {
-                context.push('/edit-surplus/${item['id']}');
-              } else if (value == 'delete') {
-                _showDeleteDialog(item['name']);
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, size: 20),
-                    SizedBox(width: 12),
-                    Text('Edit'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                    SizedBox(width: 12),
-                    Text('Delete', style: TextStyle(color: Colors.red)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

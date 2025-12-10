@@ -21,6 +21,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  String? _userRole;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Get role from query parameters
+    final uri = GoRouterState.of(context).uri;
+    _userRole = uri.queryParameters['role'];
+  }
 
   @override
   void dispose() {
@@ -38,8 +47,16 @@ class _LoginScreenState extends State<LoginScreen> {
       
       if (mounted) {
         setState(() => _isLoading = false);
-        // Navigate to role selection for MVP
-        context.go('/role-selection');
+        
+        // Route based on user role
+        if (_userRole == 'consumer') {
+          context.go('/home');
+        } else if (_userRole == 'merchant') {
+          context.go('/merchant-dashboard');
+        } else {
+          // Default to home if no role specified
+          context.go('/home');
+        }
       }
     }
   }
@@ -95,7 +112,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: AppConstants.paddingS),
                 Text(
-                  'Sign in to continue rescuing food',
+                  _userRole == 'consumer'
+                      ? 'Sign in to start saving food'
+                      : _userRole == 'merchant'
+                          ? 'Sign in to manage your surplus'
+                          : 'Sign in to continue rescuing food',
                   style: AppTypography.bodyMedium.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -180,7 +201,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: AppTypography.bodyMedium,
                     ),
                     TextButton(
-                      onPressed: () => context.go('/signup'),
+                      onPressed: () {
+                        // Pass role to signup if available
+                        if (_userRole != null) {
+                          context.go('/signup?role=$_userRole');
+                        } else {
+                          context.go('/signup');
+                        }
+                      },
                       child: Text(
                         'Sign Up',
                         style: AppTypography.bodyMedium.copyWith(

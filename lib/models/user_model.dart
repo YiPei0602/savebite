@@ -90,11 +90,13 @@ class UserModel {
 }
 
 /// User Role Enum
+/// 
+/// Note: Admin role is excluded from mobile app.
+/// Admin access is managed through a separate web portal.
 enum UserRole {
   consumer,
   merchant,
   ngo,
-  admin,
 }
 
 /// Impact Data

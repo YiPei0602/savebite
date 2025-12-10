@@ -26,6 +26,19 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _isLoading = false;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Get role from query parameters and pre-select
+    final uri = GoRouterState.of(context).uri;
+    final roleParam = uri.queryParameters['role'];
+    if (roleParam == 'consumer') {
+      _selectedRole = AppConstants.roleConsumer;
+    } else if (roleParam == 'merchant') {
+      _selectedRole = AppConstants.roleMerchant;
+    }
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
@@ -43,7 +56,16 @@ class _SignupScreenState extends State<SignupScreen> {
       
       if (mounted) {
         setState(() => _isLoading = false);
-        context.go('/home');
+        
+        // Route based on selected role
+        if (_selectedRole == AppConstants.roleConsumer) {
+          context.go('/home');
+        } else if (_selectedRole == AppConstants.roleMerchant) {
+          context.go('/merchant-dashboard');
+        } else {
+          // Default to home for NGO or other roles
+          context.go('/home');
+        }
       }
     }
   }

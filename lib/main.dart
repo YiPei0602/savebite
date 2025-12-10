@@ -55,6 +55,7 @@ class SaveBiteApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         routerConfig: AppRouter.router,
+        // Initial route is set in AppRouter to '/landing'
       ),
     );
   }

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../screens/landing_page_screen.dart';
+import '../../screens/role_based_login_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
-import '../../features/auth/screens/role_selection_screen.dart';
 import '../../features/home/screens/home_screen.dart';
 import '../../features/marketplace/screens/marketplace_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
@@ -11,7 +12,6 @@ import '../../features/merchant/screens/merchant_dashboard_screen.dart';
 import '../../features/merchant/screens/add_surplus_screen.dart';
 import '../../features/merchant/screens/merchant_orders_screen.dart';
 import '../../features/profile/screens/edit_profile_screen.dart';
-import '../../features/admin/screens/admin_dashboard_screen.dart';
 import '../../features/payment/screens/payment_methods_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/donation/screens/donation_prompt_screen.dart';
@@ -22,7 +22,7 @@ import '../../features/donation/screens/donation_prompt_screen.dart';
 /// Includes auth-based redirects (placeholder for now).
 class AppRouter {
   static final GoRouter router = GoRouter(
-    initialLocation: '/login',
+    initialLocation: '/landing',
     redirect: (BuildContext context, GoRouterState state) {
       // TODO: Implement auth-based redirects
       // Check if user is authenticated
@@ -33,6 +33,20 @@ class AppRouter {
       return null;
     },
     routes: [
+      // ========================================================================
+      // LANDING & ONBOARDING ROUTES
+      // ========================================================================
+      GoRoute(
+        path: '/landing',
+        name: 'landing',
+        builder: (context, state) => const LandingPageScreen(),
+      ),
+      GoRoute(
+        path: '/role-based-login',
+        name: 'role-based-login',
+        builder: (context, state) => const RoleBasedLoginScreen(),
+      ),
+
       // ========================================================================
       // AUTH ROUTES
       // ========================================================================
@@ -45,11 +59,6 @@ class AppRouter {
         path: '/signup',
         name: 'signup',
         builder: (context, state) => const SignupScreen(),
-      ),
-      GoRoute(
-        path: '/role-selection',
-        name: 'role-selection',
-        builder: (context, state) => const RoleSelectionScreen(),
       ),
 
       // ========================================================================
@@ -93,15 +102,6 @@ class AppRouter {
         path: '/merchant-orders',
         name: 'merchant-orders',
         builder: (context, state) => const MerchantOrdersScreen(),
-      ),
-      
-      // ========================================================================
-      // ADMIN ROUTES
-      // ========================================================================
-      GoRoute(
-        path: '/admin-dashboard',
-        name: 'admin-dashboard',
-        builder: (context, state) => const AdminDashboardScreen(),
       ),
       
       // ========================================================================

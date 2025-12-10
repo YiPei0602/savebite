@@ -462,117 +462,132 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          // Left: Thumbnail Image
-          ClipRRect(
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(AppConstants.radiusM),
-              bottomLeft: Radius.circular(AppConstants.radiusM),
-            ),
-            child: Image.network(
-              item['imageUrl'] as String,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Left: Thumbnail Image - Fixed width with constraints
+            SizedBox(
               width: 100,
-              height: 100,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 100,
-                  height: 100,
-                  color: AppColors.surfaceVariant,
-                  child: const Icon(
-                    Icons.fastfood,
-                    color: AppColors.textTertiary,
-                    size: 40,
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // Middle: Item Details
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(AppConstants.paddingM),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Item Name
-                  Text(
-                    item['name'] as String,
-                    style: AppTypography.h5,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-
-                  const SizedBox(height: AppConstants.paddingXS),
-
-                  // Description
-                  Text(
-                    item['description'] as String,
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-
-                  const SizedBox(height: AppConstants.paddingS),
-
-                  // Quantity Left (Green Text)
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.inventory_2_outlined,
-                        size: 14,
-                        color: quantityLeft <= 3 ? AppColors.warning : AppColors.success,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(AppConstants.radiusM),
+                  bottomLeft: Radius.circular(AppConstants.radiusM),
+                ),
+                child: Image.network(
+                  item['imageUrl'] as String,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: AppColors.surfaceVariant,
+                      child: const Icon(
+                        Icons.fastfood,
+                        color: AppColors.textTertiary,
+                        size: 40,
                       ),
-                      const SizedBox(width: AppConstants.paddingXS),
-                      Text(
-                        '$quantityLeft left',
-                        style: AppTypography.bodySmall.copyWith(
-                          color: quantityLeft <= 3 ? AppColors.warning : AppColors.success,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: AppConstants.paddingS),
-
-                  // Price
-                  Row(
-                    children: [
-                      Text(
-                        '${AppConstants.currencySymbol}${item['originalPrice'].toStringAsFixed(2)}',
-                        style: AppTypography.bodySmall.copyWith(
-                          decoration: TextDecoration.lineThrough,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(width: AppConstants.paddingS),
-                      Text(
-                        '${AppConstants.currencySymbol}${item['price'].toStringAsFixed(2)}',
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    );
+                  },
+                ),
               ),
             ),
-          ),
 
-          // Right: Add Button or Quantity Controls
-          Padding(
-            padding: const EdgeInsets.all(AppConstants.paddingM),
-            child: quantityInCart == 0
-                ? _buildAddButton(item)
-                : _buildQuantityControls(item),
-          ),
-        ],
+            // Middle: Item Details - Flexible to fill remaining space
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.paddingM),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Top section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Item Name
+                        Text(
+                          item['name'] as String,
+                          style: AppTypography.h5,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+
+                        const SizedBox(height: AppConstants.paddingXS),
+
+                        // Description
+                        Text(
+                          item['description'] as String,
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+
+                    // Bottom section
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Quantity Left
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.inventory_2_outlined,
+                              size: 14,
+                              color: quantityLeft <= 3 ? AppColors.warning : AppColors.success,
+                            ),
+                            const SizedBox(width: AppConstants.paddingXS),
+                            Text(
+                              '$quantityLeft left',
+                              style: AppTypography.bodySmall.copyWith(
+                                color: quantityLeft <= 3 ? AppColors.warning : AppColors.success,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 4),
+
+                        // Price
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            Text(
+                              '${AppConstants.currencySymbol}${item['originalPrice'].toStringAsFixed(2)}',
+                              style: AppTypography.bodySmall.copyWith(
+                                decoration: TextDecoration.lineThrough,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            Text(
+                              '${AppConstants.currencySymbol}${item['price'].toStringAsFixed(2)}',
+                              style: AppTypography.bodyMedium.copyWith(
+                                color: AppColors.accent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Right: Add Button or Quantity Controls - Constrained width
+            Container(
+              padding: const EdgeInsets.all(AppConstants.paddingM),
+              child: Center(
+                child: quantityInCart == 0
+                    ? _buildAddButton(item)
+                    : _buildQuantityControls(item),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
