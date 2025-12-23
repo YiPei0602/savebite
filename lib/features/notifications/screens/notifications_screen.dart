@@ -19,6 +19,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     {
       'id': '1',
       'type': 'order',
+      'orderId': 'SB12345',
       'title': 'Order Ready for Pickup',
       'message': 'Your order from Nasi Kandar Pelita is ready',
       'time': '5 min ago',
@@ -39,6 +40,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     {
       'id': '3',
       'type': 'order',
+      'orderId': 'SB12345',
       'title': 'Order Confirmed',
       'message': 'Your order #12345 has been confirmed',
       'time': '2 hours ago',
@@ -79,7 +81,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/home');
+            }
+          },
         ),
         title: Column(
           children: [
@@ -297,9 +305,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     
     // Navigate based on notification type
     if (notification['type'] == 'order') {
-      context.push('/order-tracking');
+      final orderId = notification['orderId'] as String? ?? 'SB12345';
+      context.push('/order-tracking/$orderId');
     } else if (notification['type'] == 'impact') {
-      context.push('/profile');
+      context.go('/profile');
     }
   }
 

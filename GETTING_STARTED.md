@@ -1,360 +1,227 @@
-# 🚀 Getting Started with SaveBite Development
+# 🚀 Getting Started with SaveBite
 
-## ✅ What's Been Set Up
-
-Your SaveBite Flutter project is now fully configured and ready for development!
-
-### 1. Design System ✅
-- **Colors**: Jade Green (#00A86B), Bright Orange (#FF9F1C), Off-White (#F8F9FA)
-- **Typography**: Poppins font from Google Fonts
-- **Theme**: Complete Material 3 theme configuration
-- **Location**: `lib/core/theme/`
-
-### 2. Reusable Components ✅
-- **CustomButton**: Primary, secondary, accent, and text variants
-- **CustomTextField**: Styled input fields with validation
-- **FoodCard**: Marketplace food item cards
-- **Location**: `lib/core/widgets/`
-
-### 3. Feature Screens ✅
-- **Authentication**: Login & Signup with role selection
-- **Marketplace**: Browse surplus food items
-- **Impact Dashboard**: Track meals saved, CO₂ reduced, money saved
-- **Profile**: User profile and settings
-- **Location**: `lib/features/`
-
-### 4. Navigation ✅
-- **Router**: go_router configured with all routes
-- **Bottom Navigation**: Home screen with 3 tabs
-- **Location**: `lib/core/router/`
-
-### 5. Dependencies ✅
-All packages installed:
-- UI: google_fonts, cached_network_image, shimmer
-- Backend: firebase_core, firebase_auth, cloud_firestore
-- Maps: google_maps_flutter, geolocator
-- Payment: flutter_stripe
-- State: provider
+A quick guide to set up and run the SaveBite project.
 
 ---
 
-## 🎯 Run Your App Now!
+## 📋 Prerequisites
 
-### Option 1: Web (Fastest for Development)
+Before you begin, make sure you have:
+
+- **Flutter SDK** 3.22.3 or higher
+- **Dart SDK** 3.4.4 or higher
+- **Java 17** (for Android development)
+- **Xcode 15+** (for iOS development on macOS)
+- **Android Studio** or **VS Code** with Flutter extensions
+- **Git** (for version control)
+
+---
+
+## 🔧 Installation Steps
+
+### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd SaveBite
+```
+
+### 2. Install Dependencies
+
+```bash
+flutter pub get
+```
+
+This will install all required packages listed in `pubspec.yaml`.
+
+### 3. Verify Installation
+
+```bash
+flutter doctor
+```
+
+This checks your Flutter setup and shows any missing dependencies.
+
+---
+
+## 🏃 Running the App
+
+### Web (Chrome)
+
 ```bash
 flutter run -d chrome
 ```
 
-### Option 2: macOS Desktop
+### macOS Desktop
+
 ```bash
 flutter run -d macos
 ```
 
-### Option 3: Android (After accepting licenses)
-```bash
-# First, accept Android licenses (if not done)
-flutter doctor --android-licenses
+### Android
 
-# Then run
+```bash
 flutter run -d android
 ```
 
----
+Make sure you have an Android emulator running or a device connected.
 
-## 📱 What You'll See
+### iOS (macOS only)
 
-### 1. Login Screen
-- SaveBite logo and branding
-- Email and password fields
-- Link to signup
-- **Try it**: Click "Sign Up" to see the registration flow
-
-### 2. Signup Screen
-- Role selection (Consumer/Merchant/NGO)
-- Full name, email, password fields
-- Form validation
-- **Try it**: Select a role and fill the form
-
-### 3. Marketplace (After Login)
-- Category filters (All, Bakery, Meats, etc.)
-- Grid of food items with:
-  - Food images
-  - Discount badges
-  - Prices (original & discounted)
-  - Merchant names
-- **Note**: Currently showing mock data
-
-### 4. Impact Dashboard
-- Meals Saved counter
-- CO₂ Reduced tracker
-- Money Saved calculator
-- Monthly progress goals
-- **Note**: Currently showing sample data
-
-### 5. Profile
-- User information
-- Menu items (Order History, Favorites, etc.)
-- Logout button
-
----
-
-## 🎨 Design System Usage
-
-### Using Colors
-```dart
-import 'package:savebite/core/theme/app_colors.dart';
-
-Container(
-  color: AppColors.primary,        // Jade Green
-  child: Text(
-    'Hello',
-    style: TextStyle(color: AppColors.textOnPrimary),
-  ),
-)
-```
-
-### Using Typography
-```dart
-import 'package:savebite/core/theme/app_typography.dart';
-
-Text('Heading', style: AppTypography.h2),
-Text('Body text', style: AppTypography.bodyMedium),
-Text('RM 12.50', style: AppTypography.priceMedium),
-```
-
-### Using Components
-```dart
-import 'package:savebite/core/widgets/custom_button.dart';
-
-CustomButton(
-  text: 'Save Food',
-  onPressed: () {},
-  variant: ButtonVariant.primary,
-  isFullWidth: true,
-)
-```
-
----
-
-## 🔧 Next Development Steps
-
-### Immediate (This Week)
-
-#### 1. Set Up Firebase
 ```bash
-# Install Firebase CLI
-npm install -g firebase-tools
-
-# Login to Firebase
-firebase login
-
-# Initialize Firebase in project
-firebase init
+flutter run -d ios
 ```
 
-**What to configure**:
-- Create Firebase project at https://console.firebase.google.com
-- Enable Authentication (Email/Password)
-- Create Firestore database
-- Add Firebase config files to iOS/Android
-
-#### 2. Create Data Models
-Create these files in `lib/models/`:
-- `user_model.dart` - User data structure
-- `food_item_model.dart` - Food listing structure
-- `order_model.dart` - Order data structure
-- `merchant_model.dart` - Merchant profile
-
-Example structure:
-```dart
-class FoodItem {
-  final String id;
-  final String title;
-  final String merchantId;
-  final double originalPrice;
-  final double discountedPrice;
-  final String category;
-  final String imageUrl;
-  final int quantity;
-  
-  FoodItem({...});
-  
-  // JSON serialization
-  factory FoodItem.fromJson(Map<String, dynamic> json) {...}
-  Map<String, dynamic> toJson() {...}
-}
-```
-
-#### 3. Implement Authentication
-Update `lib/features/auth/screens/`:
-- Connect login to Firebase Auth
-- Connect signup to Firebase Auth
-- Add auth state management with Provider
-- Implement protected routes
-
-### Short-term (Next 2 Weeks)
-
-#### 4. Marketplace Backend
-- Connect to Firestore
-- Fetch real food items
-- Implement search & filters
-- Add food detail screen
-- Location-based filtering
-
-#### 5. Shopping Cart
-- Create cart provider
-- Add to cart functionality
-- Cart screen
-- Quantity management
-
-#### 6. Stripe Integration
-- Set up Stripe account
-- Configure Stripe keys
-- Implement checkout flow
-- Order confirmation
-
-### Medium-term (Month 2)
-
-#### 7. Merchant Dashboard
-- List food items
-- Add/edit items
-- Upload images
-- View sales
-
-#### 8. Order Management
-- Order tracking
-- Pickup scheduling
-- Order history
-- Notifications
-
-#### 9. Impact Tracking
-- Real calculations
-- User statistics
-- Leaderboards
-- Social sharing
+Make sure you have an iOS simulator running or a device connected.
 
 ---
 
-## 📝 Development Workflow
+## 📱 Testing Different Flows
 
-### 1. Create a New Feature
+### Consumer Flow
+
+1. Run the app
+2. Navigate to Login screen
+3. Select "I'm a Consumer" role
+4. Browse home screen
+5. Add items to cart
+6. Checkout and track order
+
+### Merchant Flow
+
+1. Run the app
+2. Navigate to Login screen
+3. Select "I'm a Merchant" role
+4. View merchant dashboard
+5. Add surplus items
+6. Manage orders
+
+### Admin Flow
+
+1. Run the app
+2. Navigate to Login screen
+3. Select "I'm an Admin" role
+4. View admin dashboard
+
+---
+
+## 🛠️ Development Tips
+
+### Hot Reload
+
+While the app is running, press `r` in the terminal to hot reload changes.
+
+### Hot Restart
+
+Press `R` (capital R) to hot restart the app.
+
+### Stop the App
+
+Press `q` to quit the app.
+
+### View Logs
+
+Check the terminal output for debug logs and errors.
+
+---
+
+## 📂 Project Structure
+
+- `lib/main.dart` - App entry point
+- `lib/screens/` - Main app screens
+- `lib/features/` - Feature modules
+- `lib/models/` - Data models
+- `lib/providers/` - State management
+- `lib/services/` - API services
+- `lib/core/` - Core utilities (theme, router, widgets)
+
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed structure explanation.
+
+---
+
+## 🧪 Running Tests
+
 ```bash
-# Create feature folder
-mkdir -p lib/features/my_feature/screens
-mkdir -p lib/features/my_feature/widgets
-
-# Create screen file
-touch lib/features/my_feature/screens/my_screen.dart
+flutter test
 ```
 
-### 2. Add to Router
-Edit `lib/core/router/app_router.dart`:
-```dart
-GoRoute(
-  path: '/my-feature',
-  name: 'myFeature',
-  builder: (context, state) => const MyScreen(),
-),
+---
+
+## 📦 Building for Production
+
+### Android APK
+
+```bash
+flutter build apk --release
 ```
 
-### 3. Navigate to Screen
-```dart
-context.go('/my-feature');
-// or
-context.goNamed('myFeature');
+### iOS
+
+```bash
+flutter build ios --release
 ```
 
-### 4. Hot Reload
-- Save file in VS Code (Cmd+S)
-- Or press `r` in terminal
-- Changes appear instantly!
+### Web
+
+```bash
+flutter build web --release
+```
 
 ---
 
 ## 🐛 Troubleshooting
 
-### "Package not found" error
+### Common Issues
+
+#### 1. Dependencies Not Installing
+
 ```bash
+flutter clean
 flutter pub get
 ```
 
-### "Build failed" error
+#### 2. Build Errors
+
 ```bash
 flutter clean
 flutter pub get
 flutter run
 ```
 
-### Hot reload not working
+#### 3. iOS Build Issues
+
+Make sure you've run:
 ```bash
-# Hot restart instead
-# Press 'R' in terminal (capital R)
+cd ios
+pod install
+cd ..
 ```
 
-### Firebase errors
-- Check Firebase config files are in place
-- Verify Firebase project is created
-- Check internet connection
+#### 4. Android Build Issues
+
+Make sure you have:
+- Android SDK installed
+- JAVA_HOME set correctly
+- Gradle properly configured
 
 ---
 
-## 📚 Learning Resources
+## 📚 Additional Resources
 
-### Flutter Basics
 - [Flutter Documentation](https://docs.flutter.dev/)
-- [Dart Language Tour](https://dart.dev/guides/language/language-tour)
-- [Flutter Widget Catalog](https://docs.flutter.dev/development/ui/widgets)
-
-### State Management (Provider)
-- [Provider Package](https://pub.dev/packages/provider)
-- [Provider Tutorial](https://docs.flutter.dev/development/data-and-backend/state-mgmt/simple)
-
-### Firebase
-- [FlutterFire Documentation](https://firebase.flutter.dev/)
-- [Firebase Console](https://console.firebase.google.com)
-
-### UI/UX
-- [Material Design 3](https://m3.material.io/)
-- [Flutter Layout Cheat Sheet](https://medium.com/flutter-community/flutter-layout-cheat-sheet-5363348d037e)
+- [Dart Documentation](https://dart.dev/guides)
+- [MODULES.md](MODULES.md) - Module documentation
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Code structure guide
 
 ---
 
-## 💡 Tips for Success
+## 🆘 Need Help?
 
-### 1. Use the Design System
-Always use `AppColors`, `AppTypography`, and `AppConstants` instead of hardcoding values.
-
-### 2. Keep Components Small
-Break down complex screens into smaller, reusable widgets.
-
-### 3. Follow the Folder Structure
-Keep features organized in their respective folders.
-
-### 4. Test on Multiple Platforms
-Regularly test on web, mobile, and desktop to catch platform-specific issues.
-
-### 5. Commit Often
-Make small, frequent commits with clear messages.
-
-### 6. Document Your Code
-Add comments for complex logic and public APIs.
+- Check the [Flutter documentation](https://docs.flutter.dev/)
+- Review [MODULES.md](MODULES.md) for feature details
+- Review [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for code organization
 
 ---
 
-## 🎉 You're Ready!
+**Happy coding! 🚀**
 
-Your SaveBite project is fully set up and ready for development. Start by running the app and exploring the existing screens, then begin implementing the backend integration.
-
-**First command to run**:
-```bash
-flutter run -d chrome
-```
-
-Happy coding! 🚀🍽️
-
----
-
-**Questions?** Check the documentation files:
-- `README.md` - Project overview
-- `PROJECT_STRUCTURE.md` - Detailed architecture
-- `FLUTTER_SETUP_GUIDE.md` - Environment setup

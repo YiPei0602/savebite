@@ -4,7 +4,6 @@
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-blue)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-blue)
-![License](https://img.shields.io/badge/License-Private-red)
 
 ---
 
@@ -17,22 +16,17 @@ SaveBite connects three key stakeholders:
 
 ---
 
-## 🎨 Design System
+## 🏗️ System Architecture
 
-### Brand Colors
-- **Primary (Jade Green)**: `#00A86B` - Headers, buttons, active states
-- **Accent (Bright Orange)**: `#FF9F1C` - Discount tags, CTAs, highlights
-- **Background**: `#F8F9FA` - Clean, minimal background
+The system is built around **five seamlessly integrated modules**:
 
-### Typography
-- **Font**: Poppins (Google Fonts)
-- **Style**: Modern, clean, minimalist
+1. **User Profile & Personalized Impact Dashboard**
+2. **Surplus Food Management & Discovery**
+3. **Order & Payment Management**
+4. **Delivery & Pickup Scheduling**
+5. **Smart Donation Coordination**
 
-### UI Principles
-- Card-based layouts
-- Rounded corners (12-16px)
-- Prominent food imagery
-- Inspired by GrabFood & Too Good To Go
+See [MODULES.md](MODULES.md) for detailed module documentation.
 
 ---
 
@@ -74,29 +68,25 @@ flutter run -d ios
 
 ---
 
-## 📱 Features
+## 📱 Current Status
 
 ### ✅ Completed (UI)
 - [x] Authentication (Login/Signup with role selection)
-- [x] Marketplace (Browse surplus food items)
-- [x] Impact Dashboard (Track meals saved, CO₂ reduced, money saved)
+- [x] Home Screen (Browse surplus food)
+- [x] Cart & Checkout Screens
+- [x] Order Tracking & History
+- [x] Impact Dashboard
 - [x] Profile & Settings
-- [x] Design System (Colors, Typography, Themes)
-- [x] Reusable UI Components
+- [x] Merchant Dashboard
+- [x] Add/Manage Surplus Items
+- [x] Payment Methods
+- [x] Notifications
+- [x] Donation Prompt
 
 ### ⏳ In Progress
 - [ ] Firebase Integration
 - [ ] Backend API Connection
-- [ ] Real-time Data
-
-### 📋 Planned
-- [ ] Shopping Cart & Checkout
-- [ ] Stripe Payment Integration
-- [ ] Google Maps Integration
-- [ ] Push Notifications
-- [ ] Merchant Dashboard
-- [ ] NGO Features
-- [ ] Smart Donation System
+- [ ] Real-time Data Updates
 
 ---
 
@@ -109,20 +99,11 @@ flutter run -d ios
 - **Navigation**: go_router
 
 ### Backend (Planned)
-- **API**: Node.js
 - **Database**: Firebase Firestore
 - **Authentication**: Firebase Auth
 - **Storage**: Firebase Storage
 - **Payment**: Stripe
 - **Maps**: Google Maps API
-
-### Key Packages
-- `google_fonts` - Typography
-- `cached_network_image` - Image optimization
-- `firebase_core`, `firebase_auth`, `cloud_firestore` - Backend
-- `flutter_stripe` - Payments
-- `google_maps_flutter` - Maps
-- `provider` - State management
 
 ---
 
@@ -137,43 +118,47 @@ lib/
 │   ├── widgets/                 # Reusable components
 │   └── router/                  # Navigation
 ├── features/                    # Feature modules
-│   ├── auth/                    # Authentication
-│   ├── marketplace/             # Food marketplace
-│   ├── impact/                  # Impact dashboard
-│   └── profile/                 # User profile
+│   ├── auth/                    # Module 1: Authentication
+│   ├── profile/                 # Module 1: Profile & Impact
+│   ├── marketplace/             # Module 2: Food Discovery
+│   ├── merchant/                # Module 2: Merchant Management
+│   ├── payment/                 # Module 3: Payment
+│   ├── notifications/           # Module 3: Notifications
+│   ├── order/                   # Module 4: Order Tracking
+│   └── donation/                # Module 5: Donations
 ├── models/                      # Data models
-├── services/                    # API services
-└── providers/                   # State management
+├── providers/                   # State management
+└── services/                    # API services
 ```
 
-See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed structure explanation.
 
 ---
 
-## 🎯 Core Modules
+## 📖 Documentation
 
-### Module 1: User & Impact
-- Role-based authentication (Merchant/Consumer/NGO)
-- Profile management
-- Personalized impact dashboard
+- [MODULES.md](MODULES.md) - Detailed module documentation
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Code structure guide
+- [GETTING_STARTED.md](GETTING_STARTED.md) - Development setup guide
 
-### Module 2: Marketplace
-- Browse surplus food items
-- Filter by category and location
-- Dynamic pricing display
+---
 
-### Module 3: Order & Payment
-- Shopping cart
-- Stripe checkout
-- Order history
+## 🎨 Design System
 
-### Module 4: Fulfillment
-- Self-pickup scheduling
-- Live order tracking
+### Brand Colors
+- **Primary (Jade Green)**: `#00A86B` - Headers, buttons, active states
+- **Accent (Bright Orange)**: `#FF9F1C` - Discount tags, CTAs, highlights
+- **Background**: `#F8F9FA` - Clean, minimal background
 
-### Module 5: Smart Donation
-- Automated donation prompts
-- NGO integration
+### Typography
+- **Font**: Inter (Google Fonts)
+- **Style**: Modern, clean, minimalist
+
+### UI Principles
+- Card-based layouts
+- Rounded corners (12-16px)
+- Prominent food imagery
+- Inspired by GrabFood & Too Good To Go
 
 ---
 
@@ -182,7 +167,6 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed documentation.
 ### Code Style
 - Follow [Dart style guide](https://dart.dev/guides/language/effective-dart/style)
 - Use `flutter_lints` for code quality
-- Document public APIs
 
 ### Running Tests
 ```bash
@@ -203,33 +187,9 @@ flutter build web --release
 
 ---
 
-## 📖 Documentation
-
-- [Project Structure](PROJECT_STRUCTURE.md) - Detailed architecture
-- [Flutter Setup Guide](FLUTTER_SETUP_GUIDE.md) - Environment setup
-- [Flutter Docs](https://docs.flutter.dev/) - Official documentation
-
----
-
-## 🤝 Contributing
-
-This is a private project. For team members:
-1. Create a feature branch
-2. Make your changes
-3. Submit a pull request
-4. Wait for code review
-
----
-
 ## 📄 License
 
 Private - All rights reserved
-
----
-
-## 📞 Contact
-
-For questions or support, contact the development team.
 
 ---
 

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../screens/landing_page_screen.dart';
-import '../../screens/role_based_login_screen.dart';
+import '../../features/landing/screens/landing_page_screen.dart';
+import '../../features/landing/screens/role_based_login_screen.dart';
+import '../../features/auth/screens/welcome_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
 import '../../features/home/screens/home_screen.dart';
-import '../../features/marketplace/screens/marketplace_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/impact/screens/impact_dashboard_screen.dart';
 import '../../features/merchant/screens/merchant_dashboard_screen.dart';
@@ -15,6 +15,13 @@ import '../../features/profile/screens/edit_profile_screen.dart';
 import '../../features/payment/screens/payment_methods_screen.dart';
 import '../../features/notifications/screens/notifications_screen.dart';
 import '../../features/donation/screens/donation_prompt_screen.dart';
+import '../../features/cart/screens/cart_screen.dart';
+import '../../features/checkout/screens/checkout_screen.dart';
+import '../../features/orders/screens/order_history_screen.dart';
+import '../../features/orders/screens/order_tracking_screen.dart';
+import '../../features/orders/screens/track_order_screen.dart';
+import '../../features/marketplace/screens/merchant_details_screen.dart';
+import '../../features/marketplace/screens/category_listing_screen.dart';
 
 /// SaveBite App Router
 /// 
@@ -40,6 +47,11 @@ class AppRouter {
         path: '/landing',
         name: 'landing',
         builder: (context, state) => const LandingPageScreen(),
+      ),
+      GoRoute(
+        path: '/welcome',
+        name: 'welcome',
+        builder: (context, state) => const WelcomeScreen(),
       ),
       GoRoute(
         path: '/role-based-login',
@@ -68,11 +80,6 @@ class AppRouter {
         path: '/home',
         name: 'home',
         builder: (context, state) => const HomeScreen(),
-      ),
-      GoRoute(
-        path: '/marketplace',
-        name: 'marketplace',
-        builder: (context, state) => const MarketplaceScreen(),
       ),
       GoRoute(
         path: '/impact',
@@ -137,9 +144,77 @@ class AppRouter {
       ),
       
       // ========================================================================
-      // FEATURE ROUTES (To be added as features are developed)
+      // CART & CHECKOUT ROUTES
       // ========================================================================
-      // Additional features can be added here
+      GoRoute(
+        path: '/cart',
+        name: 'cart',
+        builder: (context, state) => const CartScreen(),
+      ),
+      GoRoute(
+        path: '/checkout',
+        name: 'checkout',
+        builder: (context, state) => const CheckoutScreen(),
+      ),
+      
+      // ========================================================================
+      // ORDER ROUTES
+      // ========================================================================
+      GoRoute(
+        path: '/order-history',
+        name: 'order-history',
+        builder: (context, state) => const OrderHistoryScreen(),
+      ),
+      GoRoute(
+        path: '/order-tracking/:orderId',
+        name: 'order-tracking',
+        builder: (context, state) {
+          final orderId = state.pathParameters['orderId'] ?? '';
+          return OrderTrackingScreen(orderId: orderId);
+        },
+      ),
+      GoRoute(
+        path: '/track-order',
+        name: 'track-order',
+        builder: (context, state) {
+          // Get parameters from extra
+          final extra = state.extra as Map<String, dynamic>?;
+          if (extra != null) {
+            return TrackOrderScreen(
+              orderId: extra['orderId'] as String,
+              cartItems: extra['cartItems'] as Map<String, Map<String, dynamic>>,
+              subtotal: extra['subtotal'] as double,
+              totalSavings: extra['totalSavings'] as double,
+              isSelfPickup: extra['isSelfPickup'] as bool,
+              paymentMethod: extra['paymentMethod'] as String,
+            );
+          }
+          // Fallback - should not happen
+          return const Scaffold(
+            body: Center(child: Text('Invalid order data')),
+          );
+        },
+      ),
+      
+      // ========================================================================
+      // MARKETPLACE ROUTES
+      // ========================================================================
+      GoRoute(
+        path: '/merchant/:merchantId',
+        name: 'merchant-details',
+        builder: (context, state) {
+          final merchantId = state.pathParameters['merchantId'] ?? '';
+          return MerchantDetailsScreen(merchantId: merchantId);
+        },
+      ),
+      GoRoute(
+        path: '/category/:category',
+        name: 'category-listing',
+        builder: (context, state) {
+          final category = state.pathParameters['category'] ?? '';
+          return CategoryListingScreen(category: category);
+        },
+      ),
     ],
   );
 }

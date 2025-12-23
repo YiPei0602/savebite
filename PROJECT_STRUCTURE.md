@@ -1,391 +1,254 @@
-# SaveBite - Project Structure
+# 📂 SaveBite - Project Structure Guide
 
-## 📁 Directory Organization
+A simple guide to understanding the code structure of SaveBite.
+
+---
+
+## 🎯 Quick Overview
+
+Think of your app like a restaurant:
+- **Screens** = Different rooms (dining room, kitchen, office)
+- **Models** = Menu items (what food you serve)
+- **Providers** = Waiters (they remember what customers ordered)
+- **Services** = Kitchen staff (they prepare the food/do the work)
+- **Core** = Restaurant rules & design (colors, fonts, how things look)
+
+---
+
+## 📁 New Feature-Based Structure
 
 ```
 lib/
-├── main.dart                          # App entry point
-├── core/                              # Core utilities, shared across app
-│   ├── theme/
-│   │   ├── app_colors.dart           # Color palette (Jade Green, Orange, etc.)
-│   │   ├── app_typography.dart       # Text styles (Poppins font)
-│   │   └── app_theme.dart            # Complete theme configuration
-│   ├── constants/
-│   │   └── app_constants.dart        # App-wide constants
-│   ├── widgets/                       # Reusable UI components
-│   │   ├── custom_button.dart        # Primary/Secondary/Accent buttons
-│   │   ├── custom_text_field.dart    # Styled input fields
-│   │   └── food_card.dart            # Food item card component
-│   ├── router/
-│   │   └── app_router.dart           # Navigation configuration (go_router)
-│   └── utils/                         # Utility functions (to be added)
-├── features/                          # Feature modules
-│   ├── auth/
+├── main.dart                    # App entry point
+├── core/                        # Shared across ALL features
+│   ├── theme/                   # Colors, fonts, theme
+│   ├── constants/               # App-wide constants
+│   ├── widgets/                 # Shared reusable widgets
+│   └── router/                  # Navigation
+│
+├── features/                    # All features organized here
+│   │
+│   ├── auth/                    # Module 1: Authentication
+│   │   ├── screens/
+│   │   │   ├── login_screen.dart
+│   │   │   └── signup_screen.dart
+│   │   ├── models/
+│   │   │   └── user_model.dart
+│   │   ├── providers/
+│   │   │   └── auth_provider.dart
+│   │   └── services/
+│   │       └── auth_service.dart
+│   │
+│   ├── landing/                 # Landing & Role Selection
 │   │   └── screens/
-│   │       ├── login_screen.dart     # Login page
-│   │       └── signup_screen.dart    # Registration with role selection
-│   ├── home/
+│   │       ├── landing_page_screen.dart
+│   │       └── role_based_login_screen.dart
+│   │
+│   ├── marketplace/             # Module 2: Food Discovery
+│   │   ├── screens/
+│   │   │   ├── marketplace_screen.dart
+│   │   │   ├── merchant_details_screen.dart
+│   │   │   └── category_listing_screen.dart
+│   │   ├── models/
+│   │   │   ├── food_item_model.dart
+│   │   │   └── merchant_model.dart
+│   │   ├── providers/
+│   │   │   ├── food_provider.dart
+│   │   │   └── merchant_provider.dart
+│   │   └── services/
+│   │       ├── food_service.dart
+│   │       └── merchant_service.dart
+│   │
+│   ├── merchant/                # Module 2: Merchant Management
 │   │   └── screens/
-│   │       └── home_screen.dart      # Main navigation hub
-│   ├── marketplace/
+│   │       ├── merchant_dashboard_screen.dart
+│   │       ├── add_surplus_screen.dart
+│   │       └── merchant_orders_screen.dart
+│   │
+│   ├── cart/                    # Module 3: Shopping Cart
+│   │   ├── screens/
+│   │   │   └── cart_screen.dart
+│   │   ├── models/
+│   │   │   └── cart_item_model.dart
+│   │   ├── providers/
+│   │   │   └── cart_provider.dart
+│   │   └── services/
+│   │
+│   ├── checkout/                # Module 3: Checkout
 │   │   └── screens/
-│   │       └── marketplace_screen.dart # Browse surplus food
-│   ├── impact/
+│   │       └── checkout_screen.dart
+│   │
+│   ├── orders/                  # Module 3 & 4: Orders & Tracking
+│   │   ├── screens/
+│   │   │   ├── order_history_screen.dart
+│   │   │   ├── order_tracking_screen.dart
+│   │   │   └── track_order_screen.dart
+│   │   ├── models/
+│   │   │   └── order_model.dart
+│   │   ├── providers/
+│   │   │   └── order_provider.dart
+│   │   └── services/
+│   │       └── order_service.dart
+│   │
+│   ├── payment/                 # Module 3: Payment
 │   │   └── screens/
-│   │       └── impact_dashboard_screen.dart # Impact metrics
-│   └── profile/
+│   │       └── payment_methods_screen.dart
+│   │
+│   ├── notifications/           # Module 3: Notifications
+│   │   └── screens/
+│   │       └── notifications_screen.dart
+│   │
+│   ├── profile/                 # Module 1: Profile
+│   │   └── screens/
+│   │       ├── profile_screen.dart
+│   │       └── edit_profile_screen.dart
+│   │
+│   ├── impact/                  # Module 1: Impact Dashboard
+│   │   └── screens/
+│   │       └── impact_dashboard_screen.dart
+│   │
+│   ├── donation/                # Module 5: Donations
+│   │   ├── screens/
+│   │   │   └── donation_prompt_screen.dart
+│   │   ├── models/
+│   │   │   └── donation_model.dart
+│   │   ├── providers/
+│   │   │   └── donation_provider.dart
+│   │   └── services/
+│   │       └── donation_service.dart
+│   │
+│   └── home/                    # Main Navigation Wrapper
 │       └── screens/
-│           └── profile_screen.dart   # User profile & settings
-├── models/                            # Data models (to be added)
-├── services/                          # API & Firebase services (to be added)
-└── providers/                         # State management (to be added)
-
-assets/
-├── images/                            # Image assets
-├── icons/                             # Icon assets
-└── logos/                             # Logo assets
+│           └── home_screen.dart
+│
+└── shared/                      # Shared utilities
+    └── utils/
+        └── price_utils.dart
 ```
 
 ---
 
-## 🎨 Design System
+## 🎯 Key Principles
 
-### Colors
-Located in: `lib/core/theme/app_colors.dart`
+### 1. Feature-Based Organization
+**Each feature is self-contained:**
+- All screens, models, providers, and services for a feature are in one folder
+- Easy to find: "Where's cart code?" → `features/cart/`
+- Easy to understand: Everything related to cart is together
 
-| Color | Hex | Usage |
-|-------|-----|-------|
-| **Primary (Jade Green)** | `#00A86B` | Headers, primary buttons, active states |
-| **Accent (Bright Orange)** | `#FF9F1C` | Discount tags, CTAs, price highlights |
-| **Background** | `#F8F9FA` | App background |
-| **Surface** | `#FFFFFF` | Cards, elevated surfaces |
+### 2. Clear Separation
+- **`core/`** = Shared across ALL features (theme, router, widgets)
+- **`features/`** = Feature-specific code
+- **`shared/`** = Utilities used by multiple features
 
-### Typography
-Located in: `lib/core/theme/app_typography.dart`
-
-- **Font Family**: Poppins (Google Fonts)
-- **Headings**: H1-H5 with bold/semibold weights
-- **Body Text**: Large, Medium, Small variants
-- **Specialized**: Button text, prices, impact numbers
-
-### UI Components
-Located in: `lib/core/widgets/`
-
-#### CustomButton
-```dart
-CustomButton(
-  text: 'Login',
-  onPressed: () {},
-  variant: ButtonVariant.primary, // primary, secondary, text, accent
-  size: ButtonSize.medium,         // small, medium, large
-  isFullWidth: true,
-  isLoading: false,
-)
+### 3. Consistent Structure
+Every feature follows the same pattern:
 ```
-
-#### CustomTextField
-```dart
-CustomTextField(
-  label: 'Email',
-  hint: 'Enter your email',
-  controller: emailController,
-  prefixIcon: Icons.email_outlined,
-  validator: (value) => value?.isEmpty ? 'Required' : null,
-)
-```
-
-#### FoodCard
-```dart
-FoodCard(
-  imageUrl: 'https://...',
-  title: 'Delicious Food',
-  merchantName: 'Restaurant Name',
-  originalPrice: 25.00,
-  discountedPrice: 12.50,
-  discountPercentage: 50,
-  category: 'Bakery',
-  quantity: 5,
-  onTap: () {},
-)
+feature_name/
+├── screens/      # UI screens
+├── models/      # Data structures (if needed)
+├── providers/   # State management (if needed)
+└── services/    # Backend calls (if needed)
 ```
 
 ---
 
-## 🧭 Navigation
+## 📊 Feature Mapping to Modules
 
-Using **go_router** for declarative routing.
-
-### Routes
-Located in: `lib/core/router/app_router.dart`
-
-| Route | Name | Screen |
-|-------|------|--------|
-| `/login` | login | LoginScreen |
-| `/signup` | signup | SignupScreen |
-| `/home` | home | HomeScreen (with bottom nav) |
-| `/marketplace` | marketplace | MarketplaceScreen |
-| `/impact` | impact | ImpactDashboardScreen |
-| `/profile` | profile | ProfileScreen |
-
-### Navigation Examples
-```dart
-// Navigate to a route
-context.go('/login');
-
-// Navigate with named route
-context.goNamed('marketplace');
-
-// Go back
-context.pop();
-```
+| Feature Folder | Module | Purpose |
+|---------------|--------|---------|
+| `auth/` | Module 1 | Authentication & login |
+| `profile/` | Module 1 | User profile management |
+| `impact/` | Module 1 | Impact dashboard |
+| `marketplace/` | Module 2 | Food discovery & browsing |
+| `merchant/` | Module 2 | Merchant management |
+| `cart/` | Module 3 | Shopping cart |
+| `checkout/` | Module 3 | Checkout process |
+| `orders/` | Module 3 & 4 | Orders & tracking |
+| `payment/` | Module 3 | Payment methods |
+| `notifications/` | Module 3 | Notifications |
+| `donation/` | Module 5 | Donation coordination |
 
 ---
 
-## 📱 Features Overview
+## 🔄 How They Work Together
 
-### Module 1: Authentication & User Management
-**Status**: ✅ UI Complete | ⏳ Backend Pending
+### Example: User Adds Food to Cart
 
-**Screens**:
-- `LoginScreen` - Email/password login
-- `SignupScreen` - Registration with role selection (Consumer/Merchant/NGO)
+1. **Screen** (`features/marketplace/screens/merchant_details_screen.dart`)
+   - User taps "Add to Cart" button
+   - Screen calls Cart Provider
 
-**TODO**:
-- [ ] Integrate Firebase Authentication
-- [ ] Implement password reset
-- [ ] Add social login (Google, Apple)
+2. **Provider** (`features/cart/providers/cart_provider.dart`)
+   - Receives the food item (using `FoodItemModel`)
+   - Adds it to cart list (using `CartItemModel`)
+   - Notifies all screens "cart changed!"
 
----
+3. **Model** (`features/marketplace/models/food_item_model.dart`)
+   - Defines what a food item looks like
+   - Provider uses this structure
 
-### Module 2: Marketplace
-**Status**: ✅ UI Complete | ⏳ Backend Pending
-
-**Screens**:
-- `MarketplaceScreen` - Browse surplus food items
-  - Category filtering
-  - Grid layout with FoodCard components
-  - Search functionality (placeholder)
-
-**TODO**:
-- [ ] Connect to Firestore for real food data
-- [ ] Implement search & filters
-- [ ] Add food detail screen
-- [ ] Implement location-based filtering
+4. **Screen** (`features/cart/screens/cart_screen.dart`)
+   - Listens to Cart Provider
+   - Shows updated cart automatically
 
 ---
 
-### Module 3: Impact Dashboard
-**Status**: ✅ UI Complete | ⏳ Backend Pending
+## 📝 Quick Reference Table
 
-**Screens**:
-- `ImpactDashboardScreen` - Personal impact metrics
-  - Meals saved counter
-  - CO₂ reduced tracker
-  - Money saved calculator
-  - Monthly progress goals
-
-**TODO**:
-- [ ] Connect to user data from Firestore
-- [ ] Implement real-time calculations
-- [ ] Add charts/graphs
-- [ ] Social sharing features
+| Folder/File | What It Does | Real Life Example |
+|------------|--------------|-------------------|
+| `main.dart` | Starts the app | Power button |
+| `core/` | Shared utilities | Restaurant rules |
+| `features/*/screens/` | Feature pages | Different rooms |
+| `features/*/models/` | Data templates | Form templates |
+| `features/*/providers/` | State managers | Notebook/memory |
+| `features/*/services/` | Backend workers | Waiter/worker |
+| `shared/utils/` | Helper functions | Calculator |
 
 ---
 
-### Module 4: Profile & Settings
-**Status**: ✅ UI Complete | ⏳ Backend Pending
+## 🎯 Summary in One Sentence Each
 
-**Screens**:
-- `ProfileScreen` - User profile & settings
-  - Profile information
-  - Order history (link)
-  - Saved addresses (link)
-  - Payment methods (link)
-  - Logout
-
-**TODO**:
-- [ ] Profile editing
-- [ ] Image upload
-- [ ] Settings screens
-- [ ] Order history implementation
+- **main.dart** → Starts everything
+- **core/** → Shared design system (colors, fonts, widgets, router)
+- **features/** → All features organized by functionality
+- **shared/** → Helper utilities used across features
 
 ---
 
-## 🔧 Dependencies
+## 💡 Benefits of This Structure
 
-### UI & Design
-- `google_fonts` - Poppins typography
-- `cached_network_image` - Optimized image loading
-- `shimmer` - Loading states
-- `flutter_svg` - SVG support
-- `badges` - Notification badges
+### ✅ Clear Organization
+- Easy to find code: "Cart code? → `features/cart/`"
+- No confusion about where files belong
 
-### State Management
-- `provider` - State management solution
+### ✅ Scalable
+- Add new features easily: just create new folder
+- Each feature is independent
 
-### Navigation
-- `go_router` - Declarative routing
+### ✅ Maintainable
+- Change cart feature? Only touch `features/cart/`
+- No scattered files across multiple folders
 
-### Backend & Services
-- `firebase_core` - Firebase initialization
-- `firebase_auth` - Authentication
-- `cloud_firestore` - Database
-- `firebase_storage` - File storage
-
-### Location & Maps
-- `google_maps_flutter` - Maps integration
-- `geolocator` - Location services
-- `geocoding` - Address conversion
-
-### Payment
-- `flutter_stripe` - Stripe payment integration
-
-### Networking
-- `http` - HTTP requests
-- `dio` - Advanced HTTP client
-
-### Storage
-- `shared_preferences` - Local key-value storage
-
-### Utilities
-- `intl` - Internationalization & formatting
-- `uuid` - Unique ID generation
-- `url_launcher` - Open URLs/phone/email
+### ✅ Team-Friendly
+- Different developers can work on different features
+- Clear boundaries between features
 
 ---
 
-## 🚀 Getting Started
+## 🗺️ Module Mapping
 
-### 1. Install Dependencies
-```bash
-flutter pub get
-```
+Each module uses specific feature folders:
 
-### 2. Run the App
-```bash
-# Web
-flutter run -d chrome
+- **Module 1 (User & Impact)**: `auth/`, `profile/`, `impact/`, `admin/`
+- **Module 2 (Food Management)**: `marketplace/`, `merchant/`
+- **Module 3 (Order & Payment)**: `cart/`, `checkout/`, `orders/`, `payment/`, `notifications/`
+- **Module 4 (Delivery & Pickup)**: `orders/` (tracking screens)
+- **Module 5 (Donations)**: `donation/`
 
-# macOS
-flutter run -d macos
-
-# Android (after accepting licenses)
-flutter run -d android
-
-# iOS (requires Xcode 15+)
-flutter run -d ios
-```
-
-### 3. Hot Reload
-Press `r` in terminal or save files in VS Code to hot reload changes.
+See [MODULES.md](MODULES.md) for detailed module information.
 
 ---
 
-## 📝 Coding Guidelines
-
-### File Naming
-- Use `snake_case` for file names
-- Suffix with type: `_screen.dart`, `_widget.dart`, `_provider.dart`
-
-### Code Style
-- Follow official [Dart style guide](https://dart.dev/guides/language/effective-dart/style)
-- Use `flutter_lints` for code quality
-- Add documentation comments for public APIs
-
-### Component Structure
-```dart
-/// Brief description
-/// 
-/// Detailed explanation of the component.
-class MyWidget extends StatelessWidget {
-  // Properties
-  final String title;
-  
-  // Constructor
-  const MyWidget({super.key, required this.title});
-  
-  // Build method
-  @override
-  Widget build(BuildContext context) {
-    return Container();
-  }
-  
-  // Private helper methods
-  Widget _buildHelper() {
-    return Container();
-  }
-}
-```
-
-### Constants Usage
-Always use constants from `AppConstants` and `AppColors`:
-```dart
-// ✅ Good
-padding: const EdgeInsets.all(AppConstants.paddingM),
-color: AppColors.primary,
-
-// ❌ Bad
-padding: const EdgeInsets.all(16),
-color: Color(0xFF00A86B),
-```
-
----
-
-## 🔜 Next Steps
-
-### Immediate (Week 1-2)
-1. **Firebase Setup**
-   - Create Firebase project
-   - Add configuration files
-   - Initialize Firebase in app
-
-2. **Authentication Implementation**
-   - Connect login/signup to Firebase Auth
-   - Implement auth state management
-   - Add protected routes
-
-3. **Data Models**
-   - Create model classes for User, Food, Order, etc.
-   - Add JSON serialization
-
-### Short-term (Week 3-4)
-4. **Marketplace Backend**
-   - Firestore data structure
-   - CRUD operations for food items
-   - Real-time updates
-
-5. **Order Flow**
-   - Shopping cart
-   - Checkout process
-   - Stripe integration
-
-### Medium-term (Month 2)
-6. **Merchant Features**
-   - Merchant dashboard
-   - Add/edit food items
-   - Sales analytics
-
-7. **NGO Features**
-   - Donation tracking
-   - Automated donation logic
-
-8. **Advanced Features**
-   - Push notifications
-   - Location-based search
-   - Image upload for food items
-
----
-
-## 📞 Support
-
-For questions or issues:
-1. Check this documentation
-2. Review Flutter documentation: https://docs.flutter.dev
-3. Check package documentation on pub.dev
-
----
-
-**Last Updated**: December 4, 2024  
-**Version**: 1.0.0  
-**Flutter**: 3.22.3  
-**Dart**: 3.4.4
+**That's it! Simple and clear! 😊**

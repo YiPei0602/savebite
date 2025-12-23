@@ -35,7 +35,10 @@ class _SignupScreenState extends State<SignupScreen> {
       _selectedRole = AppConstants.roleConsumer;
     } else if (roleParam == 'merchant') {
       _selectedRole = AppConstants.roleMerchant;
+    } else if (roleParam == 'ngo') {
+      _selectedRole = AppConstants.roleNGO;
     }
+    // If no role parameter, default to consumer
   }
 
   @override
@@ -73,13 +76,13 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.primary, // Green background
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.go('/login'),
+          icon: const Icon(Icons.arrow_back, color: Colors.white), // White icon on green background
+          onPressed: () => context.go('/welcome'),
         ),
       ),
       body: SafeArea(
@@ -90,20 +93,47 @@ class _SignupScreenState extends State<SignupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const SizedBox(height: AppConstants.paddingXL),
+                
+                // Logo/Branding
+                Center(
+                  child: Transform.scale(
+                    scale: 1.5, // 1.5 times bigger without affecting layout
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 100 * 1.67, // Base size (layout size)
+                      height: 100 * 1.67, // Base size (layout size)
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: AppConstants.paddingXL * 2),
+                
                 // Header
-                Text('Create Account', style: AppTypography.h2),
+                Text(
+                  'Create Account',
+                  style: AppTypography.h2.copyWith(
+                    color: Colors.white, // White text on green background
+                  ),
+                ),
                 const SizedBox(height: AppConstants.paddingS),
                 Text(
                   'Join SaveBite and start making a difference',
                   style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.textSecondary,
+                    color: Colors.white70, // Light white text on green background
                   ),
                 ),
                 
                 const SizedBox(height: AppConstants.paddingXL),
                 
                 // Role Selection
-                Text('I am a...', style: AppTypography.h5),
+                Text(
+                  'I am a...',
+                  style: AppTypography.h5.copyWith(
+                    color: Colors.white, // White text on green background
+                  ),
+                ),
                 const SizedBox(height: AppConstants.paddingM),
                 _buildRoleSelector(),
                 
@@ -202,13 +232,18 @@ class _SignupScreenState extends State<SignupScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text('Already have an account? ', style: AppTypography.bodyMedium),
+                    Text(
+                      'Already have an account? ',
+                      style: AppTypography.bodyMedium.copyWith(
+                        color: Colors.white70, // Light white text on green background
+                      ),
+                    ),
                     TextButton(
                       onPressed: () => context.go('/login'),
                       child: Text(
                         'Login',
                         style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.primary,
+                          color: Colors.white, // White text on green background
                           fontWeight: FontWeight.w600,
                         ),
                       ),

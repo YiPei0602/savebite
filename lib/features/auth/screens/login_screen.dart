@@ -8,7 +8,8 @@ import '../../../core/widgets/custom_text_field.dart';
 
 /// Login Screen
 /// 
-/// Allows users (Merchants, Consumers, NGOs) to log into SaveBite.
+/// Clean login page matching the reference design.
+/// Simple email/password form with login button.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -21,14 +22,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
-  String? _userRole;
+  bool _obscurePassword = true;
+  String? _selectedRole;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     // Get role from query parameters
     final uri = GoRouterState.of(context).uri;
-    _userRole = uri.queryParameters['role'];
+    _selectedRole = uri.queryParameters['role'];
   }
 
   @override
@@ -48,13 +50,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() => _isLoading = false);
         
-        // Route based on user role
-        if (_userRole == 'consumer') {
-          context.go('/home');
-        } else if (_userRole == 'merchant') {
+        // Navigate to role-based home after login
+        if (_selectedRole == 'merchant') {
           context.go('/merchant-dashboard');
         } else {
-          // Default to home if no role specified
+          // Default to consumer home
           context.go('/home');
         }
       }
@@ -64,73 +64,81 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.primary, // Green background
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white), // White icon on green background
+          onPressed: () => context.go('/welcome'),
+        ),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
+          padding: const EdgeInsets.all(AppConstants.paddingXL),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: AppConstants.paddingXL * 2),
+                const SizedBox(height: AppConstants.paddingXL),
                 
                 // Logo/Branding
                 Center(
-                  child: Column(
-                    children: [
-                      Image.asset(
-                        'assets/images/logo.png',
-                        width: 120,
-                        height: 120,
-                        fit: BoxFit.contain,
-                      ),
-                      const SizedBox(height: AppConstants.paddingM),
-                      Text(
-                        AppConstants.appName,
-                        style: AppTypography.h1.copyWith(
-                          color: AppColors.primary,
-                        ),
-                      ),
-                      const SizedBox(height: AppConstants.paddingXS),
-                      Text(
-                        AppConstants.appTagline,
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
+                  child: Transform.scale(
+                    scale: 1.5, // 1.5 times bigger without affecting layout
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 100 * 1.67, // Base size (layout size)
+                      height: 100 * 1.67, // Base size (layout size)
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ),
                 
                 const SizedBox(height: AppConstants.paddingXL * 2),
                 
-                // Welcome Text
+                // Heading
                 Text(
-                  'Welcome Back',
-                  style: AppTypography.h2,
+                  'Login',
+                  style: AppTypography.h1.copyWith(
+                    color: Colors.white, // White text on green background
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: AppConstants.paddingS),
                 Text(
-                  _userRole == 'consumer'
-                      ? 'Sign in to start saving food'
-                      : _userRole == 'merchant'
-                          ? 'Sign in to manage your surplus'
-                          : 'Sign in to continue rescuing food',
+                  'Please login to your account.',
                   style: AppTypography.bodyMedium.copyWith(
-                    color: AppColors.textSecondary,
+                    color: Colors.white70, // Light white text on green background
                   ),
                 ),
                 
-                const SizedBox(height: AppConstants.paddingXL),
+                const SizedBox(height: AppConstants.paddingXL * 1.5),
                 
                 // Email Field
-                CustomTextField(
-                  label: 'Email',
-                  hint: 'Enter your email',
+                TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  prefixIcon: Icons.email_outlined,
+                  decoration: InputDecoration(
+                    labelText: 'Email',
+                    hintText: 'Enter your email',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your email';
@@ -145,18 +153,44 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: AppConstants.paddingM),
                 
                 // Password Field
-                CustomTextField(
-                  label: 'Password',
-                  hint: 'Enter your password',
+                TextFormField(
                   controller: _passwordController,
-                  obscureText: true,
-                  prefixIcon: Icons.lock_outlined,
+                  obscureText: _obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    hintText: 'Enter your password',
+                    prefixIcon: const Icon(Icons.lock_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: BorderSide(color: AppColors.accent, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
                       return 'Please enter your password';
                     }
-                    if (value.length < AppConstants.minPasswordLength) {
-                      return 'Password must be at least ${AppConstants.minPasswordLength} characters';
+                    if (value.length < 6) {
+                      return 'Password must be at least 6 characters';
                     }
                     return null;
                   },
@@ -174,50 +208,47 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Text(
                       'Forgot Password?',
                       style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.primary,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ),
                 ),
                 
-                const SizedBox(height: AppConstants.paddingL),
+                const SizedBox(height: AppConstants.paddingXL),
                 
-                // Login Button
-                CustomButton(
-                  text: 'Login',
-                  onPressed: _handleLogin,
-                  isLoading: _isLoading,
-                  isFullWidth: true,
-                ),
-                
-                const SizedBox(height: AppConstants.paddingM),
-                
-                // Sign Up Link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "Don't have an account? ",
-                      style: AppTypography.bodyMedium,
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        // Pass role to signup if available
-                        if (_userRole != null) {
-                          context.go('/signup?role=$_userRole');
-                        } else {
-                          context.go('/signup');
-                        }
-                      },
-                      child: Text(
-                        'Sign Up',
-                        style: AppTypography.bodyMedium.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                // Login Button (Bright Yellow/Orange)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _handleLogin,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: AppConstants.paddingM,
                       ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      ),
+                      elevation: 2,
                     ),
-                  ],
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(
+                            'Login',
+                            style: AppTypography.buttonLarge.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
                 ),
               ],
             ),

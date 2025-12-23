@@ -80,7 +80,13 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close),
-          onPressed: () => context.pop(),
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/merchant-dashboard');
+            }
+          },
         ),
         title: Text(
           'Add Surplus Item',

@@ -3,12 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
-import 'providers/auth_provider.dart';
-import 'providers/food_provider.dart';
-import 'providers/cart_provider.dart';
-import 'providers/order_provider.dart';
-import 'providers/merchant_provider.dart';
-import 'providers/donation_provider.dart';
+import 'features/auth/providers/auth_provider.dart';
+import 'features/marketplace/providers/food_provider.dart';
+import 'features/cart/providers/cart_provider.dart';
+import 'features/orders/providers/order_provider.dart';
+import 'features/marketplace/providers/merchant_provider.dart';
+import 'features/donation/providers/donation_provider.dart';
 
 /// SaveBite - Food Rescue Platform
 /// 
