@@ -1,26 +1,17 @@
 import { Outlet } from 'react-router-dom'
-import { Box } from '@mui/material'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 
 export function AppLayout() {
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <div className="flex h-screen bg-gray-50">
       <Sidebar />
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      <div className="flex flex-col flex-1 overflow-hidden">
         <Header />
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            p: 3,
-            backgroundColor: 'background.default',
-          }}
-        >
+        <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
-        </Box>
-      </Box>
-    </Box>
+        </main>
+      </div>
+    </div>
   )
 }
-

@@ -21,16 +21,17 @@ class AuthProvider with ChangeNotifier {
 
   /// Initialize auth state
   /// 
-  /// Check if user is already logged in (from local storage in future)
+  /// Check if user is already logged in via Firebase Auth
   Future<void> initialize() async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      // TODO: Check local storage for saved session
-      _currentUser = _authService.currentUser;
+      // Check Firebase Auth state and fetch user document from Firestore
+      _currentUser = await _authService.initialize();
     } catch (e) {
       _errorMessage = e.toString();
+      _currentUser = null;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -58,7 +59,8 @@ class AuthProvider with ChangeNotifier {
 
   /// Sign up new user
   Future<bool> signup({
-    required String name,
+    required String firstName,
+    required String lastName,
     required String email,
     required String password,
     required UserRole role,
@@ -69,7 +71,8 @@ class AuthProvider with ChangeNotifier {
 
     try {
       _currentUser = await _authService.signup(
-        name: name,
+        firstName: firstName,
+        lastName: lastName,
         email: email,
         password: password,
         role: role,

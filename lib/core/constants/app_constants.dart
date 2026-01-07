@@ -61,7 +61,6 @@ class AppConstants {
   // ============================================================================
   static const String roleMerchant = 'merchant';
   static const String roleConsumer = 'consumer';
-  static const String roleNGO = 'ngo';
 
   // ============================================================================
   // FOOD CATEGORIES

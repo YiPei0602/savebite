@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/widgets/custom_button.dart';
 import '../../../core/widgets/custom_text_field.dart';
+import '../providers/auth_provider.dart';
 
 /// Login Screen
 /// 
@@ -44,18 +46,41 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
       
-      // Simulate authentication
-      await Future.delayed(const Duration(seconds: 1));
+      // Get AuthProvider and attempt login
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final success = await authProvider.login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
       
       if (mounted) {
         setState(() => _isLoading = false);
         
-        // Navigate to role-based home after login
-        if (_selectedRole == 'merchant') {
-          context.go('/merchant-dashboard');
+        if (success) {
+          // Login successful - navigate based on user role
+          final userRole = authProvider.userRole;
+          if (userRole != null) {
+            // Navigate based on role
+            if (userRole.toString().split('.').last == 'merchant') {
+              context.go('/merchant-dashboard');
+            } else {
+              // Default to consumer home for consumer and ngo
+              context.go('/home');
+            }
+          } else {
+            // Fallback navigation
+            context.go('/home');
+          }
         } else {
-          // Default to consumer home
-          context.go('/home');
+          // Login failed - show error message
+          final errorMessage = authProvider.errorMessage ?? 'Login failed. Please try again.';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 3),
+            ),
+          );
         }
       }
     }

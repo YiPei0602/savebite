@@ -1,11 +1,14 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// User Model
 /// 
 /// Represents a user in the SaveBite platform.
-/// Supports Consumer, Merchant, and NGO roles.
+/// Supports Consumer and Merchant roles only.
 /// Note: Admin access is managed through a separate web portal.
 class UserModel {
   final String id;
-  final String name;
+  final String firstName;
+  final String lastName;
   final String email;
   final UserRole role;
   final String? profileImage;
@@ -17,7 +20,8 @@ class UserModel {
 
   UserModel({
     required this.id,
-    required this.name,
+    required this.firstName,
+    required this.lastName,
     required this.email,
     required this.role,
     this.profileImage,
@@ -28,10 +32,108 @@ class UserModel {
     this.updatedAt,
   });
 
+  /// Get full name (firstName + lastName)
+  String get name => '$firstName $lastName';
+
+  /// Create UserModel from Firestore document
+  /// 
+  /// Converts Firestore Timestamp to DateTime
+  factory UserModel.fromFirestore(Map<String, dynamic> json, String id) {
+    // Handle createdAt - can be Timestamp or DateTime string
+    DateTime createdAt;
+    if (json['createdAt'] is Timestamp) {
+      createdAt = (json['createdAt'] as Timestamp).toDate();
+    } else if (json['createdAt'] is String) {
+      createdAt = DateTime.parse(json['createdAt'] as String);
+    } else {
+      createdAt = DateTime.now();
+    }
+
+    // Handle updatedAt - optional
+    DateTime? updatedAt;
+    if (json['updatedAt'] != null) {
+      if (json['updatedAt'] is Timestamp) {
+        updatedAt = (json['updatedAt'] as Timestamp).toDate();
+      } else if (json['updatedAt'] is String) {
+        updatedAt = DateTime.parse(json['updatedAt'] as String);
+      }
+    }
+
+    // Parse role string to UserRole enum
+    UserRole role;
+    final roleString = json['role'] as String? ?? 'consumer';
+    if (roleString == 'consumer') {
+      role = UserRole.consumer;
+    } else if (roleString == 'merchant') {
+      role = UserRole.merchant;
+    } else {
+      role = UserRole.consumer; // Default fallback
+    }
+
+    // Handle impactData - create default if missing
+    ImpactData impactData;
+    if (json['impactData'] != null) {
+      impactData = ImpactData.fromJson(json['impactData'] as Map<String, dynamic>);
+    } else {
+      impactData = ImpactData(
+        mealsSaved: 0,
+        co2Reduced: 0.0,
+        moneySaved: 0.0,
+        ordersCompleted: 0,
+      );
+    }
+
+    // Handle name field - support both old (name) and new (firstName/lastName) formats
+    String firstName;
+    String lastName;
+    if (json['firstName'] != null && json['lastName'] != null) {
+      firstName = json['firstName'] as String;
+      lastName = json['lastName'] as String;
+    } else if (json['name'] != null) {
+      // Legacy support: split name into first and last
+      final nameParts = (json['name'] as String).trim().split(' ');
+      firstName = nameParts.isNotEmpty ? nameParts.first : '';
+      lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+    } else {
+      firstName = '';
+      lastName = '';
+    }
+
+    return UserModel(
+      id: id,
+      firstName: firstName,
+      lastName: lastName,
+      email: json['email'] as String,
+      role: role,
+      profileImage: json['profileImage'] as String?,
+      phoneNumber: json['phoneNumber'] as String?,
+      address: json['address'] as String?,
+      impactData: impactData,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    // Handle name field - support both old (name) and new (firstName/lastName) formats
+    String firstName;
+    String lastName;
+    if (json['firstName'] != null && json['lastName'] != null) {
+      firstName = json['firstName'] as String;
+      lastName = json['lastName'] as String;
+    } else if (json['name'] != null) {
+      final nameParts = (json['name'] as String).trim().split(' ');
+      firstName = nameParts.isNotEmpty ? nameParts.first : '';
+      lastName = nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
+    } else {
+      firstName = '';
+      lastName = '';
+    }
+
     return UserModel(
       id: json['id'] as String,
-      name: json['name'] as String,
+      firstName: firstName,
+      lastName: lastName,
       email: json['email'] as String,
       role: UserRole.values.firstWhere(
         (e) => e.toString() == 'UserRole.${json['role']}',
@@ -48,10 +150,30 @@ class UserModel {
     );
   }
 
+  /// Convert UserModel to Firestore document format
+  /// 
+  /// Converts DateTime to Timestamp for Firestore
+  Map<String, dynamic> toFirestore() {
+    return {
+      'uid': id,
+      'firstName': firstName,
+      'lastName': lastName,
+      'email': email,
+      'role': role.toString().split('.').last, // 'consumer' or 'merchant'
+      'profileImage': profileImage,
+      'phoneNumber': phoneNumber,
+      'address': address,
+      'impactData': impactData.toJson(),
+      'createdAt': Timestamp.fromDate(createdAt),
+      if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
+    };
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'name': name,
+      'firstName': firstName,
+      'lastName': lastName,
       'email': email,
       'role': role.toString().split('.').last,
       'profileImage': profileImage,
@@ -65,7 +187,8 @@ class UserModel {
 
   UserModel copyWith({
     String? id,
-    String? name,
+    String? firstName,
+    String? lastName,
     String? email,
     UserRole? role,
     String? profileImage,
@@ -77,7 +200,8 @@ class UserModel {
   }) {
     return UserModel(
       id: id ?? this.id,
-      name: name ?? this.name,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
       email: email ?? this.email,
       role: role ?? this.role,
       profileImage: profileImage ?? this.profileImage,
@@ -97,7 +221,6 @@ class UserModel {
 enum UserRole {
   consumer,
   merchant,
-  ngo,
 }
 
 /// Impact Data

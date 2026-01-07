@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "261732256114",
+    "project_id": "savebite-1fd01",
+    "storage_bucket": "savebite-1fd01.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:261732256114:android:11f69ba8670bf201e375eb",
+        "android_client_info": {
+          "package_name": "com.example.savebite"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAV-yzXVAMp9n4_--zkqB69WjzWE0kTOHM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

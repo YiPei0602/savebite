@@ -76,7 +76,7 @@ class _CustomTextFieldState extends State<CustomTextField> {
           controller: widget.controller,
           focusNode: widget.focusNode,
           keyboardType: widget.keyboardType,
-          obscureText: _obscureText,
+          obscureText: widget.obscureText ? _obscureText : false,
           enabled: widget.enabled,
           maxLines: widget.obscureText ? 1 : widget.maxLines,
           maxLength: widget.maxLength,

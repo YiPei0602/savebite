@@ -1,13 +1,8 @@
-# SaveBite Admin Web Dashboard
+# SaveBite Admin Dashboard
 
-Admin web interface for managing the SaveBite platform.
+Production-ready admin dashboard for managing the SaveBite platform.
 
 ## 🚀 Quick Start
-
-### Prerequisites
-- Node.js 18+ and npm
-
-### Installation
 
 ```bash
 # Install dependencies
@@ -18,62 +13,52 @@ npm run dev
 
 # Build for production
 npm run build
-
-# Preview production build
-npm run preview
 ```
+
+## 📋 Features
+
+- **Dashboard** - System overview with statistics and charts
+- **User Management** - Search, filter, activate, suspend, and delete users
+- **Donation Records** - View donations and generate PDF reports
+- **Reports** - Generate and export system reports
+- **Profile** - Manage admin profile and password
+
+## 🛠 Tech Stack
+
+- React 18 + TypeScript
+- Tailwind CSS
+- React Router v6
+- Zustand (State Management)
+- React Query (Server State)
+- Recharts (Charts)
+- jsPDF (PDF Export)
+- Lucide React (Icons)
 
 ## 📁 Project Structure
 
 ```
-savebite_web/
-├── src/
-│   ├── app/              # App configuration (router, providers)
-│   ├── features/         # Feature modules
-│   │   ├── auth/         # Authentication
-│   │   ├── users/        # User management
-│   │   ├── orders/       # Order monitoring
-│   │   ├── donations/    # Donation tracking
-│   │   ├── analytics/    # Analytics & reports
-│   │   └── system/       # System activity
-│   ├── shared/           # Shared components & utilities
-│   ├── core/             # Core configuration (theme, stores)
-│   └── main.tsx          # Entry point
-├── public/               # Static assets
-└── package.json
+src/
+├── app/              # App configuration
+├── features/         # Feature modules
+│   ├── auth/         # Authentication
+│   ├── dashboard/    # Dashboard
+│   ├── users/        # User management
+│   ├── donations/    # Donation records
+│   ├── reports/      # Reports
+│   └── profile/      # Admin profile
+├── shared/           # Shared components & utilities
+└── core/             # Core configuration
 ```
 
-## 🛠 Tech Stack
+## 📝 Documentation
 
-- **React 18** + **TypeScript**
-- **Vite** - Build tool
-- **Material-UI (MUI)** - UI component library
-- **React Query** - Server state management
-- **Zustand** - Client state management
-- **React Router** - Routing
-- **Axios** - HTTP client
-- **Recharts** - Charts & visualizations
-
-## 📚 Documentation
-
+- [Installation Guide](./INSTALLATION.md)
 - [Architecture Document](../WEB_FRONTEND_ARCHITECTURE.md)
-- [Quick Reference](../WEB_FRONTEND_QUICK_REFERENCE.md)
-- [Decision Matrix](../WEB_FRONTEND_DECISIONS.md)
 
-## 🔐 Environment Variables
+## 🔐 Login
 
-Copy `.env.example` to `.env` and fill in your configuration:
+Default credentials (mock):
+- Email: Any email
+- Password: Any password
 
-```bash
-cp .env.example .env
-```
-
-## 📝 Development
-
-See the architecture documents for detailed information about:
-- Feature modules
-- Component architecture
-- State management
-- API integration
-- Routing strategy
-
+In production, replace with actual authentication.
