@@ -5,8 +5,8 @@ import 'dart:async';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/constants/app_constants.dart';
-import '../providers/order_provider.dart';
-import '../models/order_model.dart';
+import '../../orders_payments/state/providers/order_provider.dart';
+import '../../orders_payments/domain/models/order_model.dart';
 
 /// Order Tracking Screen
 /// 

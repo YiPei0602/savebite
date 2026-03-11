@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:savebite/screens/landing_page_screen.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/screens/landing_page_screen.dart';
 
 void main() {
   group('Landing Page Property Tests', () {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:savebite/utils/price_utils.dart';
+import 'package:savebite/shared/utils/price_utils.dart';
 
 void main() {
   group('PriceUtils', () {

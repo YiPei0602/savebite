@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isMerchant() {
+      return signedIn() && userDoc().exists && userDoc().data.role == 'merchant';
+    }
+
+    function ownsMerchantId(merchantId) {
+      return isMerchant()
+        && (
+          merchantId == request.auth.uid
+          || (userDoc().data.merchantId != null && merchantId == userDoc().data.merchantId)
+        );
+    }
+
+    // Users can read/write only their own user document.
+    match /users/{userId} {
+      allow read, create, update, delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Food listings: any signed-in user can read.
+    // Only the owning merchant can create/update/delete their own listings.
+    match /food_items/{itemId} {
+      allow read: if signedIn();
+
+      allow create: if ownsMerchantId(request.resource.data.merchantId);
+
+      allow update, delete: if ownsMerchantId(resource.data.merchantId);
+    }
+  }
+}
+

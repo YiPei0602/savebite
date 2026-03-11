@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:savebite/models/user_model.dart';
-import 'package:savebite/screens/role_based_login_screen.dart';
+import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/screens/role_based_login_screen.dart';
 
 void main() {
   group('Admin Role Exclusion Property Tests', () {
@@ -130,7 +130,7 @@ void main() {
 
     testWidgets(
         'Property 3: Admin Role Excluded - '
-        'UserRole enum contains only consumer, merchant, and ngo',
+        'UserRole enum contains only consumer and merchant',
         (WidgetTester tester) async {
       // **Feature: landing-and-role-based-auth, Property 3: Admin Role Excluded**
       // **Validates: Requirements 4.1, 4.2, 4.3**
@@ -140,7 +140,6 @@ void main() {
       // Verify expected roles exist
       expect(roles.contains(UserRole.consumer), true);
       expect(roles.contains(UserRole.merchant), true);
-      expect(roles.contains(UserRole.ngo), true);
 
       // Verify admin does not exist
       expect(
@@ -148,8 +147,8 @@ void main() {
         false,
       );
 
-      // Verify only 3 roles exist
-      expect(roles.length, 3);
+      // Verify only 2 roles exist
+      expect(roles.length, 2);
     });
 
     testWidgets(

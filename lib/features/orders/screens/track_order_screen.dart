@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../auth_profile_impact/state/providers/auth_provider.dart';
+import '../../auth_profile_impact/domain/models/user_model.dart';
 
 /// Track Order Screen
 /// 
@@ -85,7 +88,8 @@ class _TrackOrderScreenState extends State<TrackOrderScreen> {
             if (context.canPop()) {
               context.pop();
             } else {
-              context.go('/home');
+              final role = context.read<AuthProvider>().userRole;
+              context.go(role == UserRole.merchant ? '/merchant-dashboard' : '/home');
             }
           },
         ),

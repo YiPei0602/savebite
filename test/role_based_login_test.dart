@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:savebite/screens/role_based_login_screen.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/screens/role_based_login_screen.dart';
 
 void main() {
   group('Role-Based Login Screen Tests', () {
@@ -190,25 +190,22 @@ void main() {
     });
 
     testWidgets('Role buttons are tappable', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: const RoleBasedLoginScreen(),
-          routerConfig: GoRouter(
-            routes: [
-              GoRoute(
-                path: '/',
-                builder: (context, state) => const RoleBasedLoginScreen(),
-              ),
-              GoRoute(
-                path: '/login',
-                builder: (context, state) => const Scaffold(
-                  body: Center(child: Text('Login')),
-                ),
-              ),
-            ],
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const RoleBasedLoginScreen(),
           ),
-        ),
+          GoRoute(
+            path: '/login',
+            builder: (context, state) => const Scaffold(
+              body: Center(child: Text('Login')),
+            ),
+          ),
+        ],
       );
+
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
 
       // Tap on "I want to buy" button
       await tester.tap(find.text('I want to buy'));

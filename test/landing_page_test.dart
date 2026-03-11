@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:savebite/screens/landing_page_screen.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/screens/landing_page_screen.dart';
 
 void main() {
   group('Landing Page Tests', () {
