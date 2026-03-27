@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 
 /// Edit Profile Screen
@@ -21,7 +22,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _addressController = TextEditingController();
 
   bool _didInitFromUser = false;
 
@@ -35,7 +35,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController.text = user.name;
     _emailController.text = user.email;
     _phoneController.text = user.phoneNumber ?? '';
-    _addressController.text = user.address ?? '';
   }
 
   @override
@@ -43,7 +42,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
@@ -52,7 +50,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final ok = await context.read<AuthProvider>().updateProfile(
             name: _nameController.text.trim(),
             phoneNumber: _phoneController.text.trim(),
-            address: _addressController.text.trim(),
           );
 
       if (mounted && ok) {
@@ -76,16 +73,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/profile');
-            }
-          },
-        ),
+        leading: const AppBackButton(),
         title: Text(
           'Edit Profile',
           style: AppTypography.h4,
@@ -173,20 +161,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               validator: (value) {
                 if (value == null || value.isEmpty) {
                   return 'Please enter your phone number';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-
-            _buildTextField(
-              controller: _addressController,
-              label: 'Address',
-              icon: Icons.location_on_outlined,
-              maxLines: 2,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your address';
                 }
                 return null;
               },

@@ -7,6 +7,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
+import 'package:savebite/shared/utils/merchant_schedule_utils.dart';
 
 /// Food Service
 ///
@@ -19,6 +22,7 @@ class FoodService {
   FoodService._internal();
 
   static const String _collection = 'food_items';
+  static const String _merchantCollection = 'merchants';
   static const String _storageBucket = 'gs://savebite-1fd01.firebasestorage.app';
   static const String _storageBucketFallback = 'gs://savebite-1fd01.appspot.com';
 
@@ -28,16 +32,30 @@ class FoodService {
   // Image upload requires Firebase Storage (may require Blaze billing).
   bool get _isStorageUploadEnabled => true;
 
-  /// Get all available food items
-  ///
-  /// TODO: Replace with Firebase Firestore query
+  static const int _consumerFetchCap = 120;
+
+  /// Consumer catalog: newest first; only [ListingStatus.active] (includes legacy docs
+  /// without `status`, parsed as active). Fetches extra rows then filters so inactive
+  /// listings do not crowd out active ones within the limit.
   Future<List<FoodItemModel>> getAllFoodItems() async {
+    final now = DateTime.now();
     final snap = await _firestore
         .collection(_collection)
         .orderBy('createdAt', descending: true)
-        .limit(80)
+        .limit(_consumerFetchCap)
         .get();
-    return snap.docs.map(_fromDoc).toList(growable: false);
+    final merchantIds = snap.docs
+        .map((d) => d.data()['merchantId'] as String?)
+        .whereType<String>()
+        .toSet();
+    final merchants = await _fetchMerchantsByIds(merchantIds);
+    await _expireActivePastClosingInDocs(snap.docs, now, merchants);
+    final active = snap.docs
+        .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
+        .where((item) => item.isConsumerVisibleNow(now))
+        .toList(growable: true)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return active.take(80).toList(growable: false);
   }
 
   /// Get food items by category
@@ -46,15 +64,24 @@ class FoodService {
   Future<List<FoodItemModel>> getFoodItemsByCategory(
     FoodCategory category,
   ) async {
+    final now = DateTime.now();
     final snap = await _firestore
         .collection(_collection)
         .where('category', isEqualTo: category.name)
-        .limit(80)
+        .limit(_consumerFetchCap)
         .get();
-    final items = snap.docs.map(_fromDoc).toList(growable: false);
-    final sorted = items.toList(growable: true)
+    final merchantIds = snap.docs
+        .map((d) => d.data()['merchantId'] as String?)
+        .whereType<String>()
+        .toSet();
+    final merchants = await _fetchMerchantsByIds(merchantIds);
+    await _expireActivePastClosingInDocs(snap.docs, now, merchants);
+    final items = snap.docs
+        .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
+        .where((item) => item.isConsumerVisibleNow(now))
+        .toList(growable: true)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return sorted;
+    return items.take(80).toList(growable: false);
   }
 
   /// Get food items by merchant
@@ -171,6 +198,7 @@ class FoodService {
     return item.copyWith(
       id: docRef.id,
       imageUrl: imageUrl,
+      listingStatus: ListingStatus.active,
       createdAt: DateTime.now(),
       updatedAt: null,
     );
@@ -179,13 +207,33 @@ class FoodService {
   /// Update food item (Merchant only)
   ///
   /// TODO: Replace with Firebase Firestore
-  Future<FoodItemModel> updateFoodItem(FoodItemModel item) async {
+  Future<FoodItemModel> updateFoodItem(
+    FoodItemModel item, {
+    Uint8List? imageBytes,
+    String? imageFileName,
+    String? imageContentType,
+  }) async {
     final docRef = _firestore.collection(_collection).doc(item.id);
+    var imageUrl = item.imageUrl;
+
+    if (imageBytes != null) {
+      final storage = FirebaseStorage.instance;
+      final ext = _safeImageExtension(imageFileName);
+      imageUrl = await _uploadImageToStorage(
+        storage: storage,
+        merchantId: item.merchantId,
+        docId: item.id,
+        ext: ext,
+        imageBytes: imageBytes,
+        imageContentType: imageContentType,
+      );
+    }
+
     await docRef.update({
-      ..._toFirestore(item, id: item.id, imageUrl: item.imageUrl, includeCreatedAt: false),
+      ..._toFirestore(item, id: item.id, imageUrl: imageUrl, includeCreatedAt: false),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    return item.copyWith(updatedAt: DateTime.now());
+    return item.copyWith(imageUrl: imageUrl, updatedAt: DateTime.now());
   }
 
   /// Delete food item (Merchant only)
@@ -205,11 +253,191 @@ class FoodService {
     });
   }
 
+  /// When [now] is on or after listing [closingTime], **or** the store session
+  /// is closed in Malaysia (schedule + [MerchantModel.isOpen] fallback), sets
+  /// [ListingStatus.expired] and
+  /// [isAvailable] false. Idempotent.
+  Future<void> applyListingLifecycleForMerchant(
+    String merchantId, {
+    DateTime? now,
+  }) async {
+    final effectiveNow = now ?? DateTime.now();
+    final merchantDoc =
+        await _firestore.collection(_merchantCollection).doc(merchantId).get();
+    final MerchantModel? merchant = merchantDoc.exists && merchantDoc.data() != null
+        ? MerchantModel.fromFirestore(merchantDoc.data()!, merchantDoc.id)
+        : null;
+
+    final snap = await _firestore
+        .collection(_collection)
+        .where('merchantId', isEqualTo: merchantId)
+        .limit(100)
+        .get();
+
+    WriteBatch batch = _firestore.batch();
+    var ops = 0;
+
+    Future<void> commitIfNeeded() async {
+      if (ops == 0) return;
+      await batch.commit();
+      batch = _firestore.batch();
+      ops = 0;
+    }
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      if (!_shouldExpireActiveListing(data, merchant, effectiveNow)) continue;
+
+      batch.update(doc.reference, _expireListingFieldUpdates());
+      ops++;
+      if (ops >= 450) {
+        await commitIfNeeded();
+      }
+    }
+    await commitIfNeeded();
+  }
+
+  Map<String, dynamic> _expireListingFieldUpdates() {
+    return {
+      'status': ListingStatus.expired.name,
+      'isAvailable': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
+  /// Active listing should end: past **item** closing, or past **store** closing (Malaysia).
+  bool _shouldExpireActiveListing(
+    Map<String, dynamic> data,
+    MerchantModel? merchant,
+    DateTime now,
+  ) {
+    final status = ListingStatus.fromFirestore(data['status'] as String?);
+    if (status != ListingStatus.active) return false;
+
+    if (isListingPastStoreSessionMalaysia(merchant)) {
+      return true;
+    }
+
+    final closing = dateTimeFromFirestore(data['closingTime']);
+    if (closing == null || now.isBefore(closing)) return false;
+    return true;
+  }
+
+  Future<Map<String, MerchantModel?>> _fetchMerchantsByIds(Set<String> ids) async {
+    final out = <String, MerchantModel?>{};
+    if (ids.isEmpty) return out;
+    final list = ids.toList(growable: false);
+    for (var i = 0; i < list.length; i += 10) {
+      final chunk = list.skip(i).take(10).toList(growable: false);
+      final qs = await _firestore
+          .collection(_merchantCollection)
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      for (final d in qs.docs) {
+        out[d.id] = MerchantModel.fromFirestore(d.data(), d.id);
+      }
+    }
+    for (final id in ids) {
+      out.putIfAbsent(id, () => null);
+    }
+    return out;
+  }
+
+  /// Writes `expired` for active docs past item closing **or** past store closing (MY).
+  Future<void> _expireActivePastClosingInDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    DateTime now,
+    Map<String, MerchantModel?> merchants,
+  ) async {
+    if (docs.isEmpty) return;
+    WriteBatch batch = _firestore.batch();
+    var ops = 0;
+
+    Future<void> commitIfNeeded() async {
+      if (ops == 0) return;
+      await batch.commit();
+      batch = _firestore.batch();
+      ops = 0;
+    }
+
+    for (final doc in docs) {
+      final data = doc.data();
+      final mid = data['merchantId'] as String?;
+      final merchant = mid != null ? merchants[mid] : null;
+      if (!_shouldExpireActiveListing(data, merchant, now)) continue;
+
+      batch.update(doc.reference, _expireListingFieldUpdates());
+      ops++;
+      if (ops >= 450) {
+        await commitIfNeeded();
+      }
+    }
+    await commitIfNeeded();
+  }
+
+  /// Snapshot may be stale after [_expireActivePastClosingInDocs]; align model with effective status.
+  FoodItemModel _fromDocForConsumerCatalog(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    DateTime now, {
+    Map<String, MerchantModel?>? merchants,
+  }) {
+    final item = _fromDoc(doc);
+    if (item.listingStatus != ListingStatus.active) return item;
+
+    final m = merchants?[item.merchantId];
+    if (isListingPastStoreSessionMalaysia(m)) {
+      return item.copyWith(listingStatus: ListingStatus.expired, isAvailable: false);
+    }
+    if (!now.isBefore(item.closingTime)) {
+      return item.copyWith(listingStatus: ListingStatus.expired, isAvailable: false);
+    }
+    return item;
+  }
+
+  /// Marks expired listings as hidden from merchant dashboard (Firestore only; does not delete).
+  Future<void> dismissExpiredFromMerchantDashboard(String merchantId) async {
+    final snap = await _firestore
+        .collection(_collection)
+        .where('merchantId', isEqualTo: merchantId)
+        .limit(100)
+        .get();
+
+    WriteBatch batch = _firestore.batch();
+    var ops = 0;
+
+    Future<void> commitIfNeeded() async {
+      if (ops == 0) return;
+      await batch.commit();
+      batch = _firestore.batch();
+      ops = 0;
+    }
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final status = ListingStatus.fromFirestore(data['status'] as String?);
+      if (status != ListingStatus.expired) continue;
+      final dismissed = data['dismissedFromMerchantDashboard'] as bool? ?? false;
+      if (dismissed) continue;
+
+      batch.update(doc.reference, {
+        'dismissedFromMerchantDashboard': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      ops++;
+      if (ops >= 450) {
+        await commitIfNeeded();
+      }
+    }
+    await commitIfNeeded();
+  }
+
   FoodItemModel _fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
-    final createdAt = _asDateTime(data['createdAt']) ?? DateTime.now();
-    final updatedAt = _asDateTime(data['updatedAt']);
-    final closingTime = _asDateTime(data['closingTime']) ?? DateTime.now();
+    final createdAt =
+        dateTimeFromFirestoreWithDefault(data['createdAt']);
+    final updatedAt = dateTimeFromFirestore(data['updatedAt']);
+    final closingTime =
+        dateTimeFromFirestoreWithDefault(data['closingTime']);
 
     final categoryStr = (data['category'] as String?) ?? FoodCategory.other.name;
     final categoriesStr = (data['categories'] as List<dynamic>?)
@@ -265,6 +493,9 @@ class FoodService {
       imageUrl: (data['imageUrl'] as String?) ?? '',
       rating: (data['rating'] as num?)?.toDouble(),
       isAvailable: (data['isAvailable'] as bool?) ?? true,
+      listingStatus: ListingStatus.fromFirestore(data['status'] as String?),
+      dismissedFromMerchantDashboard:
+          (data['dismissedFromMerchantDashboard'] as bool?) ?? false,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -299,19 +530,13 @@ class FoodService {
       'imageUrl': imageUrl,
       'rating': item.rating,
       'isAvailable': item.isAvailable,
+      'status': item.listingStatus.name,
+      'dismissedFromMerchantDashboard': item.dismissedFromMerchantDashboard,
     };
     if (includeCreatedAt) {
       map['createdAt'] = FieldValue.serverTimestamp();
     }
     return map;
-  }
-
-  DateTime? _asDateTime(dynamic value) {
-    if (value == null) return null;
-    if (value is Timestamp) return value.toDate();
-    if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value);
-    return null;
   }
 
   String _safeImageExtension(String? fileName) {

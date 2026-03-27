@@ -1,434 +1,566 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:savebite/app/theme/app_colors.dart';
-import 'package:savebite/app/theme/app_typography.dart';
-import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/core/constants/app_constants.dart';
+import 'package:savebite/core/theme/app_colors.dart';
+import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/state/providers/order_provider.dart';
-import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
-/// Merchant Orders Screen
-///
-/// View and manage incoming orders.
 class MerchantOrdersScreen extends StatefulWidget {
-  const MerchantOrdersScreen({super.key});
+  const MerchantOrdersScreen({super.key, this.showBackButton = true});
+
+  final bool showBackButton;
 
   @override
   State<MerchantOrdersScreen> createState() => _MerchantOrdersScreenState();
 }
 
-class _MerchantOrdersScreenState extends State<MerchantOrdersScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  String? _merchantId;
+class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
+  final _customerLabelCache = <String, String>{};
+  final _customerInFlight = <String, Future<String>>{};
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final auth = context.read<AuthProvider>();
-    final merchantId = auth.currentUser?.merchantId ?? auth.currentUser?.id;
-    if (merchantId != null && merchantId.isNotEmpty && merchantId != _merchantId) {
-      _merchantId = merchantId;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        context.read<OrderProvider>().loadMerchantOrders(merchantId);
-      });
-    }
-  }
+  static const _activeStatuses = <OrderStatus>[
+    OrderStatus.pending,
+    OrderStatus.confirmed,
+    OrderStatus.preparing,
+    OrderStatus.ready,
+  ];
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _customerInFlight.clear();
     super.dispose();
+  }
+
+  Future<String> _loadCustomerLabel(String userId) {
+    if (_customerLabelCache.containsKey(userId)) {
+      return Future.value(_customerLabelCache[userId]!);
+    }
+    if (_customerInFlight.containsKey(userId)) {
+      return _customerInFlight[userId]!;
+    }
+
+    final f = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get()
+        .timeout(const Duration(seconds: 6))
+        .then((doc) {
+      final data = doc.data();
+      if (data == null) return 'Customer: $userId';
+      final email = (data['email'] as String?)?.trim();
+      final firstName = (data['firstName'] as String?)?.trim();
+      final lastName = (data['lastName'] as String?)?.trim();
+      final fullName =
+          [firstName, lastName].where((s) => s != null && s.isNotEmpty).join(' ');
+
+      final label = (fullName.isNotEmpty)
+          ? fullName
+          : (email != null && email.isNotEmpty)
+              ? email
+              : 'Customer: $userId';
+      _customerLabelCache[userId] = label;
+      return label;
+    }).catchError((_) {
+      final label = 'Customer: $userId';
+      _customerLabelCache[userId] = label;
+      return label;
+    });
+
+    _customerInFlight[userId] = f;
+    return f;
+  }
+
+  String _formatStatus(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return 'Pending';
+      case OrderStatus.confirmed:
+        return 'Confirmed';
+      case OrderStatus.preparing:
+        return 'Preparing';
+      case OrderStatus.ready:
+        return 'Ready';
+      case OrderStatus.completed:
+        return 'Completed';
+      case OrderStatus.cancelled:
+        return 'Cancelled';
+      case OrderStatus.onTheWay:
+        return 'On the way';
+    }
+  }
+
+  Color _statusColor(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.pending:
+        return const Color(0xFF6B7280); // grey
+      case OrderStatus.confirmed:
+        return const Color(0xFF2563EB); // blue
+      case OrderStatus.preparing:
+        return const Color(0xFFF97316); // orange
+      case OrderStatus.ready:
+        return const Color(0xFF7C3AED); // purple
+      case OrderStatus.completed:
+        return const Color(0xFF16A34A); // green
+      case OrderStatus.cancelled:
+        return const Color(0xFFDC2626); // red
+      case OrderStatus.onTheWay:
+        return AppColors.accent;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer2<AuthProvider, OrderProvider>(
       builder: (context, authProvider, orderProvider, _) {
-        final role = authProvider.userRole;
+        final user = authProvider.currentUser;
+        final merchantId = user?.merchantId ?? user?.id;
 
-        final orders = orderProvider.orders;
-        final newOrders =
-            orders.where((o) => o.status == OrderStatus.pending).toList();
-        final activeOrders = orders.where((o) {
-          return o.status == OrderStatus.confirmed ||
-              o.status == OrderStatus.preparing ||
-              o.status == OrderStatus.ready ||
-              o.status == OrderStatus.onTheWay;
-        }).toList();
-        final completedOrders = orders.where((o) {
-          return o.status == OrderStatus.completed ||
-              o.status == OrderStatus.cancelled;
-        }).toList();
-
-        return Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            backgroundColor: AppColors.surface,
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go(
-                    role == UserRole.merchant ? '/merchant-dashboard' : '/home',
-                  );
-                }
-              },
-            ),
-            title: Text('Orders', style: AppTypography.h4),
-            centerTitle: true,
-            bottom: TabBar(
-              controller: _tabController,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.textSecondary,
-              indicatorColor: AppColors.primary,
-              labelStyle: AppTypography.bodyMedium.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-              tabs: [
-                Tab(text: 'New (${newOrders.length})'),
-                Tab(text: 'Active (${activeOrders.length})'),
-                Tab(text: 'Completed (${completedOrders.length})'),
-              ],
-            ),
-          ),
-          body: orderProvider.isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildOrdersList(newOrders, 'new'),
-                    _buildOrdersList(activeOrders, 'active'),
-                    _buildOrdersList(completedOrders, 'completed'),
-                  ],
+        return DefaultTabController(
+          length: 2,
+          child: Scaffold(
+            backgroundColor: Colors.white,
+            appBar: AppBar(
+              backgroundColor: Colors.white,
+              elevation: 0,
+              centerTitle: true,
+              leading: widget.showBackButton ? const AppBackButton() : null,
+              title: Text('Orders', style: AppTypography.h3),
+              bottom: TabBar(
+                labelColor: AppColors.primary,
+                unselectedLabelColor: AppColors.textSecondary,
+                indicatorColor: AppColors.primary,
+                labelStyle: AppTypography.caption.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
+                tabs: const [
+                  Tab(text: 'Active'),
+                  Tab(text: 'Completed'),
+                ],
+              ),
+            ),
+            body: (merchantId == null || merchantId.isEmpty)
+                ? Center(
+                    child: Text(
+                      'Merchant session missing. Please log in again.',
+                      style: AppTypography.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : StreamBuilder<List<OrderModel>>(
+                    stream: orderProvider.watchMerchantOrders(merchantId),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return _InlineState(
+                          icon: Icons.error_outline,
+                          title: 'Unable to load orders',
+                          subtitle: snapshot.error.toString(),
+                        );
+                      }
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      final orders = snapshot.data ?? const <OrderModel>[];
+                      final active = orders
+                          .where((o) => _activeStatuses.contains(o.orderStatus))
+                          .toList(growable: false);
+                      final completed = orders
+                          .where((o) =>
+                              o.orderStatus == OrderStatus.completed ||
+                              o.orderStatus == OrderStatus.cancelled)
+                          .toList(growable: false);
+
+                      return TabBarView(
+                        children: [
+                          _OrdersList(
+                            orders: active,
+                            emptyTitle: 'No active orders',
+                            emptySubtitle: 'New orders will appear here instantly.',
+                            customerLabel: _loadCustomerLabel,
+                            formatStatus: _formatStatus,
+                            statusColor: _statusColor,
+                          ),
+                          _OrdersList(
+                            orders: completed,
+                            emptyTitle: 'No completed orders',
+                            emptySubtitle: 'Completed/cancelled orders will appear here.',
+                            customerLabel: _loadCustomerLabel,
+                            formatStatus: _formatStatus,
+                            statusColor: _statusColor,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
         );
       },
     );
   }
+}
 
-  Widget _buildOrdersList(List<OrderModel> orders, String type) {
-    if (orders.isEmpty) return _buildEmptyState(type);
+class _OrdersList extends StatelessWidget {
+  final List<OrderModel> orders;
+  final String emptyTitle;
+  final String emptySubtitle;
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(AppConstants.paddingL),
+  final Future<String> Function(String userId) customerLabel;
+  final String Function(OrderStatus status) formatStatus;
+  final Color Function(OrderStatus status) statusColor;
+
+  const _OrdersList({
+    required this.orders,
+    required this.emptyTitle,
+    required this.emptySubtitle,
+    required this.customerLabel,
+    required this.formatStatus,
+    required this.statusColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (orders.isEmpty) {
+      return _InlineState(
+        icon: Icons.receipt_long,
+        title: emptyTitle,
+        subtitle: emptySubtitle,
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(AppConstants.paddingM),
       itemCount: orders.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        return _buildOrderCard(orders[index], type);
+        final order = orders[index];
+        return _OrderCard(
+          order: order,
+          customerLabel: customerLabel,
+          formatStatus: formatStatus,
+          statusColor: statusColor,
+        );
       },
     );
   }
+}
 
-  Widget _buildOrderCard(OrderModel order, String type) {
-    final itemsSummary = order.items.isEmpty
-        ? 'No items'
-        : order.items
-            .map((i) => '${i.foodItem.name} x${i.quantity}')
-            .take(2)
-            .join(', ');
+class _OrderCard extends StatefulWidget {
+  final OrderModel order;
+  final Future<String> Function(String userId) customerLabel;
+  final String Function(OrderStatus status) formatStatus;
+  final Color Function(OrderStatus status) statusColor;
+
+  const _OrderCard({
+    required this.order,
+    required this.customerLabel,
+    required this.formatStatus,
+    required this.statusColor,
+  });
+
+  @override
+  State<_OrderCard> createState() => _OrderCardState();
+}
+
+class _OrderCardState extends State<_OrderCard> {
+  bool _busy = false;
+
+  Future<void> _setStatus(OrderStatus status) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final ok = await context.read<OrderProvider>().updateOrderStatus(
+          widget.order.id,
+          status,
+        );
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.read<OrderProvider>().errorMessage ?? 'Unable to update status',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = widget.order;
+    final status = order.orderStatus;
+    final statusText = widget.formatStatus(status);
+    final createdAtText = DateFormat('dd MMM yyyy, HH:mm').format(order.createdAt);
+    final id = order.id;
+    final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
+    final statusColor = widget.statusColor(status);
+
+    final bool showActions = status != OrderStatus.completed && status != OrderStatus.cancelled;
+
+    final String? primaryLabel;
+    final OrderStatus? primaryTarget;
+    switch (status) {
+      case OrderStatus.pending:
+        primaryLabel = 'Accept Order';
+        primaryTarget = OrderStatus.confirmed;
+        break;
+      case OrderStatus.confirmed:
+        primaryLabel = 'Start Preparing';
+        primaryTarget = OrderStatus.preparing;
+        break;
+      case OrderStatus.preparing:
+        primaryLabel = 'Mark as Ready';
+        primaryTarget = OrderStatus.ready;
+        break;
+      case OrderStatus.ready:
+        primaryLabel = 'Complete Order';
+        primaryTarget = OrderStatus.completed;
+        break;
+      case OrderStatus.completed:
+      case OrderStatus.cancelled:
+      case OrderStatus.onTheWay:
+        primaryLabel = null;
+        primaryTarget = null;
+        break;
+    }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        border: Border.all(color: AppColors.border.withOpacity(0.6)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Order ${order.id}', style: AppTypography.h5),
-              _buildStatusBadge(order.status),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Icon(
-                Icons.person_outline,
-                size: 16,
-                color: AppColors.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                order.userId,
-                style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                Icons.shopping_bag_outlined,
-                size: 16,
-                color: AppColors.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  itemsSummary,
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'RM ${order.totalPrice.toStringAsFixed(2)}',
-                style: AppTypography.h5.copyWith(color: AppColors.primary),
-              ),
-              Text(
-                _timeAgo(order.createdAt),
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.textTertiary,
-                ),
-              ),
-            ],
-          ),
-          if (type == 'new') ...[
-            const SizedBox(height: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.paddingM),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top: ID + time
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _rejectOrder(order),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      side: const BorderSide(color: AppColors.error),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                  child: Text(
+                    'Order #$shortId',
+                    style: AppTypography.h5.copyWith(
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.textPrimary,
                     ),
-                    child: const Text('Reject'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: ElevatedButton(
-                    onPressed: () => _acceptOrder(order),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: const Text('Accept'),
                   ),
                 ),
               ],
             ),
-          ],
-          if (type == 'active') ...[
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _markReady(order),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text('Mark as Ready'),
+            const SizedBox(height: 8),
+            Text(
+              createdAtText,
+              style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+            ),
+
+            const SizedBox(height: 12),
+
+            // Middle: customer + items
+            FutureBuilder<String>(
+              future: widget.customerLabel(order.userId),
+              builder: (context, snap) {
+                final label = snap.data ?? 'Customer: ${order.userId}';
+                return Row(
+                  children: [
+                    const Icon(
+                      Icons.person_outline,
+                      size: 16,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Items',
+              style: AppTypography.bodySmall.copyWith(
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
               ),
             ),
-          ],
-        ],
-      ),
-    );
-  }
+            const SizedBox(height: 6),
+            ...order.items.map((ci) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        ci.foodItem.name,
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'x${ci.quantity}',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
 
-  Widget _buildStatusBadge(OrderStatus status) {
-    Color color;
-    String label;
+            const SizedBox(height: 14),
 
-    switch (status) {
-      case OrderStatus.pending:
-        color = AppColors.accent;
-        label = 'New';
-        break;
-      case OrderStatus.confirmed:
-      case OrderStatus.preparing:
-        color = Colors.blue;
-        label = 'Preparing';
-        break;
-      case OrderStatus.ready:
-      case OrderStatus.onTheWay:
-        color = Colors.purple;
-        label = 'Ready';
-        break;
-      case OrderStatus.completed:
-        color = Colors.green;
-        label = 'Completed';
-        break;
-      case OrderStatus.cancelled:
-        color = AppColors.error;
-        label = 'Cancelled';
-        break;
-      default:
-        color = AppColors.textSecondary;
-        label = status.name;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: AppTypography.caption.copyWith(
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(String type) {
-    String message;
-    IconData icon;
-
-    switch (type) {
-      case 'new':
-        message = 'No new orders';
-        icon = Icons.inbox;
-        break;
-      case 'active':
-        message = 'No active orders';
-        icon = Icons.hourglass_empty;
-        break;
-      default:
-        message = 'No completed orders';
-        icon = Icons.check_circle_outline;
-    }
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            size: 80,
-            color: AppColors.textSecondary.withOpacity(0.5),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: AppTypography.h4.copyWith(color: AppColors.textSecondary),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _acceptOrder(OrderModel order) async {
-    final ok = await context
-        .read<OrderProvider>()
-        .updateOrderStatus(order.id, OrderStatus.preparing);
-    if (!mounted) return;
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Order ${order.id} accepted'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      _tabController.animateTo(1);
-    }
-  }
-
-  void _rejectOrder(OrderModel order) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reject Order'),
-        content: Text('Reject order ${order.id}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              final ok = await context
-                  .read<OrderProvider>()
-                  .updateOrderStatus(order.id, OrderStatus.cancelled);
-              if (!context.mounted) return;
-              if (ok) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Order ${order.id} rejected'),
-                    backgroundColor: Colors.red,
+            // Bottom: total + status badge
+            Row(
+              children: [
+                Text(
+                  'Total',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
                   ),
-                );
-              }
-            },
-            child: const Text('Reject', style: TextStyle(color: Colors.red)),
-          ),
-        ],
+                ),
+                const Spacer(),
+                Text(
+                  '${AppConstants.currencySymbol}${order.totalPrice.toStringAsFixed(2)}',
+                  style: AppTypography.h5.copyWith(
+                    color: AppColors.accent,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: statusColor.withOpacity(0.35)),
+                  ),
+                  child: Text(
+                    statusText,
+                    style: AppTypography.caption.copyWith(
+                      color: statusColor,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            if (showActions && primaryLabel != null && primaryTarget != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _busy ? null : () => _setStatus(primaryTarget!),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              height: 16,
+                              width: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(primaryLabel),
+                    ),
+                  ),
+                  if (status == OrderStatus.pending) ...[
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: _busy ? null : () => _setStatus(OrderStatus.cancelled),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.error,
+                        side: const BorderSide(color: AppColors.error),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
+}
 
-  Future<void> _markReady(OrderModel order) async {
-    final ok =
-        await context.read<OrderProvider>().updateOrderStatus(order.id, OrderStatus.ready);
-    if (!mounted) return;
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Order ${order.id} marked as ready'),
-          backgroundColor: Colors.green,
+class _InlineState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _InlineState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.paddingL),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 54, color: AppColors.textTertiary),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: AppTypography.h5.copyWith(fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
-      );
-      _tabController.animateTo(2);
-    }
-  }
-
-  String _timeAgo(DateTime time) {
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
-    if (diff.inHours < 24) return '${diff.inHours} hours ago';
-    return '${diff.inDays} days ago';
+      ),
+    );
   }
 }
 

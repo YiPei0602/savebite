@@ -1,3 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
+
 /// Discount Range
 ///
 /// Represents the min and max discount percentages for dynamic pricing.
@@ -25,6 +28,25 @@ class DiscountRange {
   }
 }
 
+/// Listing lifecycle in Firestore (`status`): `active` → `expired` after [closingTime].
+/// Legacy value `unsold` is read as [expired].
+enum ListingStatus {
+  active,
+  expired;
+
+  static ListingStatus fromFirestore(String? value) {
+    switch (value) {
+      case 'expired':
+      case 'unsold':
+        return ListingStatus.expired;
+      case 'active':
+        return ListingStatus.active;
+      default:
+        return ListingStatus.active;
+    }
+  }
+}
+
 /// Food Item Model
 ///
 /// Represents a surplus food item available for purchase.
@@ -48,6 +70,10 @@ class FoodItemModel {
   final String imageUrl;
   final double? rating;
   final bool isAvailable;
+  /// Firestore field name: `status`. Missing/unknown values parse as [ListingStatus.active].
+  final ListingStatus listingStatus;
+  /// Merchant dashboard: when true, expired row is hidden from merchant UI only (doc stays `expired`).
+  final bool dismissedFromMerchantDashboard;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
@@ -69,6 +95,8 @@ class FoodItemModel {
     required this.imageUrl,
     this.rating,
     this.isAvailable = true,
+    this.listingStatus = ListingStatus.active,
+    this.dismissedFromMerchantDashboard = false,
     required this.createdAt,
     this.updatedAt,
   }) : categories = categories ?? <FoodCategory>[];
@@ -113,15 +141,17 @@ class FoodItemModel {
                 orElse: () => DietaryTag.none,
               ))
           .toList(),
-      closingTime: DateTime.parse(json['closingTime'] as String),
+      closingTime: dateTimeFromFirestoreWithDefault(json['closingTime']),
       imageUrl: json['imageUrl'] as String,
       rating:
           json['rating'] != null ? (json['rating'] as num).toDouble() : null,
       isAvailable: json['isAvailable'] as bool? ?? true,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
-          : null,
+      listingStatus:
+          ListingStatus.fromFirestore(json['status'] as String? ?? json['listingStatus'] as String?),
+      dismissedFromMerchantDashboard:
+          json['dismissedFromMerchantDashboard'] as bool? ?? false,
+      createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
+      updatedAt: dateTimeFromFirestore(json['updatedAt']),
     );
   }
 
@@ -141,12 +171,14 @@ class FoodItemModel {
       'categories': effectiveCategories.map((c) => c.name).toList(),
       'dietaryTags':
           dietaryTags.map((tag) => tag.toString().split('.').last).toList(),
-      'closingTime': closingTime.toIso8601String(),
+      'closingTime': Timestamp.fromDate(closingTime),
       'imageUrl': imageUrl,
       'rating': rating,
       'isAvailable': isAvailable,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
+      'status': listingStatus.name,
+      'dismissedFromMerchantDashboard': dismissedFromMerchantDashboard,
+      'createdAt': Timestamp.fromDate(createdAt),
+      'updatedAt': timestampFromDateTime(updatedAt),
     };
   }
 
@@ -168,6 +200,8 @@ class FoodItemModel {
     String? imageUrl,
     double? rating,
     bool? isAvailable,
+    ListingStatus? listingStatus,
+    bool? dismissedFromMerchantDashboard,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -189,9 +223,81 @@ class FoodItemModel {
       imageUrl: imageUrl ?? this.imageUrl,
       rating: rating ?? this.rating,
       isAvailable: isAvailable ?? this.isAvailable,
+      listingStatus: listingStatus ?? this.listingStatus,
+      dismissedFromMerchantDashboard:
+          dismissedFromMerchantDashboard ?? this.dismissedFromMerchantDashboard,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
+  }
+
+  /// Firestore `status` is [ListingStatus.active] (not expired).
+  bool get isVisibleToConsumers => listingStatus == ListingStatus.active;
+
+  /// Consumer catalog: active and before [closingTime] (hides stale `active` until lifecycle writes `expired`).
+  bool isConsumerVisibleNow([DateTime? now]) {
+    final t = now ?? DateTime.now();
+    if (listingStatus != ListingStatus.active) return false;
+    return t.isBefore(closingTime);
+  }
+
+  /// Merchant list: hide rows that are expired and already dismissed from dashboard.
+  bool get isVisibleOnMerchantDashboard =>
+      !(listingStatus == ListingStatus.expired && dismissedFromMerchantDashboard);
+
+  /// Returns the discount % the customer should see *right now*.
+  ///
+  /// If [discountRange] is set, we progressively increase the discount as we
+  /// approach [closingTime] (surplus urgency). Otherwise, we fall back to the
+  /// stored [discountPercentage].
+  ///
+  /// Schedule (relative to closing time):
+  /// - > 4h  : min
+  /// - 4–2h  : 20% of the way to max
+  /// - 2–1h  : 40% of the way to max
+  /// - 1h–30m: 70% of the way to max
+  /// - ≤ 30m : max
+  int get effectiveDiscountPercentage {
+    final range = discountRange;
+    if (range == null) return discountPercentage;
+
+    final max = range.maxPercent.clamp(0, 100);
+    final min = range.minPercent.clamp(0, max);
+    final span = max - min;
+    if (span == 0) return min;
+
+    final minutesLeft = closingTime.difference(DateTime.now()).inMinutes;
+    if (minutesLeft <= 0) return max;
+
+    final double t;
+    if (minutesLeft > 240) {
+      t = 0.0;
+    } else if (minutesLeft > 120) {
+      t = 0.2;
+    } else if (minutesLeft > 60) {
+      t = 0.4;
+    } else if (minutesLeft > 30) {
+      t = 0.7;
+    } else {
+      t = 1.0;
+    }
+
+    return (min + (span * t)).round().clamp(0, 100);
+  }
+
+  double get effectiveDiscountedPrice {
+    final pct = effectiveDiscountPercentage;
+    return originalPrice * (1 - pct / 100);
+  }
+
+  double get effectiveSavings {
+    return originalPrice - effectiveDiscountedPrice;
+  }
+
+  /// Expiring soon used by merchant KPIs (your rule): < 30 minutes remaining.
+  bool get isExpiringSoon30Min {
+    final diff = closingTime.difference(DateTime.now());
+    return diff.inMinutes <= 30 && diff.inMinutes > 0;
   }
 
   bool get isClosingSoon {
@@ -201,14 +307,21 @@ class FoodItemModel {
   }
 
   double get savings {
-    return originalPrice - discountedPrice;
+    return effectiveSavings;
   }
 
   List<FoodCategory> get effectiveCategories =>
       categories.isNotEmpty ? categories : <FoodCategory>[category];
 }
 
-/// Food Category Enum
+/// Product category for surplus listings (Firestore, filters, merchant forms).
+///
+/// This is the **data model** for what a food item *is* (bakery, snacks, etc.).
+/// The home screen “Categories” row is a **curated subset** of routes (including
+/// dietary shortcuts like Halal / Veggie) that map into [FoodCategory] and/or
+/// [DietaryTag] in [CategoryListingScreen] — they are not a 1:1 duplicate list,
+/// but every chip that represents a product type should resolve to a value here
+/// for queries and persistence.
 enum FoodCategory {
   bakery,
   meats,

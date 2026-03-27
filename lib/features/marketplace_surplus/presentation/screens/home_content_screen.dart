@@ -6,7 +6,11 @@ import 'package:provider/provider.dart';
 import 'package:savebite/shared/utils/price_utils.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/utils/surplus_sellability_utils.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/core/constants/app_constants.dart';
@@ -63,6 +67,10 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
       }
       if (foodProvider.selectedLocation == null) {
         foodProvider.setLocation('Penang');
+      }
+      final mp = context.read<MerchantProvider>();
+      if (mp.merchants.isEmpty && !mp.isLoading) {
+        mp.loadMerchants();
       }
     });
   }
@@ -137,8 +145,8 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                 const SizedBox(height: AppConstants.paddingL),
                 const _SectionTitle(title: 'Recommended Near You'),
                 const SizedBox(height: AppConstants.paddingM),
-                Consumer<FoodProvider>(
-                  builder: (context, foodProvider, _) {
+                Consumer2<FoodProvider, MerchantProvider>(
+                  builder: (context, foodProvider, merchantProvider, _) {
                     if (foodProvider.isLoading) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: AppConstants.paddingL),
@@ -154,7 +162,27 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                       );
                     }
 
-                    final items = foodProvider.displayedFoodItems;
+                    final now = DateTime.now();
+                    MerchantModel? mFor(String id) {
+                      for (final m in merchantProvider.merchants) {
+                        if (m.id == id) return m;
+                      }
+                      return null;
+                    }
+
+                    final items = foodProvider.displayedFoodItems.toList()
+                      ..sort((a, b) {
+                        final ua =
+                            isConsumerListingUnavailableForDisplay(a, now)
+                                ? 1
+                                : 0;
+                        final ub =
+                            isConsumerListingUnavailableForDisplay(b, now)
+                                ? 1
+                                : 0;
+                        if (ua != ub) return ua.compareTo(ub);
+                        return b.createdAt.compareTo(a.createdAt);
+                      });
                     if (items.isEmpty) {
                       return _InlineEmptyState(
                         title: 'No recommendations yet',
@@ -170,7 +198,18 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                         for (final item in recommended.take(6)) ...[
                           _WideDealCard(
                             item: item,
-                            onTap: () => context.push('/merchant/${item.merchantId}'),
+                            shopDisplayName: consumerShopDisplayName(
+                              merchantId: item.merchantId,
+                              merchantProfile: mFor(item.merchantId),
+                              fromFoodItem: item.merchantName,
+                            ),
+                            unavailable:
+                                isConsumerListingUnavailableForDisplay(
+                                    item, now),
+                            onTap: () => context.push(
+                              '/merchant/${item.merchantId}/item/${item.id}',
+                              extra: item,
+                            ),
                           ),
                           const SizedBox(height: AppConstants.paddingM),
                         ],
@@ -488,6 +527,11 @@ class _CategoryGrid extends StatelessWidget {
       route: '/category/beverages',
     ),
     _CategoryAction(
+      shortLabel: 'Snacks',
+      imagePath: 'assets/images/snacks.png',
+      route: '/category/snacks',
+    ),
+    _CategoryAction(
       shortLabel: 'Veggie',
       imagePath: 'assets/images/vegetarian.png',
       route: '/category/vegetarian',
@@ -768,9 +812,16 @@ class _StoreCard extends StatelessWidget {
 
 class _WideDealCard extends StatelessWidget {
   final FoodItemModel item;
+  final String shopDisplayName;
+  final bool unavailable;
   final VoidCallback onTap;
 
-  const _WideDealCard({required this.item, required this.onTap});
+  const _WideDealCard({
+    required this.item,
+    required this.shopDisplayName,
+    required this.unavailable,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -788,9 +839,11 @@ class _WideDealCard extends StatelessWidget {
       discountPercent: currentDiscount,
     );
 
-    final pickupText = PriceUtils.formatTimeRemaining(item.closingTime);
+    final pickupText = unavailable
+        ? 'Unavailable'
+        : PriceUtils.formatTimeRemaining(item.closingTime);
 
-    return Material(
+    final card = Material(
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(AppConstants.radiusL),
       child: InkWell(
@@ -805,7 +858,8 @@ class _WideDealCard extends StatelessWidget {
             boxShadow: _elevationMedium,
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            // Important: avoid `stretch` inside an unbounded-height scroll view.
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ClipRRect(
                 borderRadius: const BorderRadius.horizontal(
@@ -813,31 +867,57 @@ class _WideDealCard extends StatelessWidget {
                 ),
                 child: SizedBox(
                   width: 118,
+                  height: 126,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       _NetworkImage(imageUrl: item.imageUrl),
-                      Positioned(
-                        left: 10,
-                        top: 10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.accent,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Text(
-                            '-$currentDiscount%',
-                            style: AppTypography.caption.copyWith(
-                              color: AppColors.textOnAccent,
-                              fontWeight: FontWeight.w800,
+                      if (!unavailable)
+                        Positioned(
+                          left: 10,
+                          top: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.accent,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Text(
+                              '-$currentDiscount%',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textOnAccent,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      if (unavailable)
+                        Positioned.fill(
+                          child: Container(
+                            color: Colors.black.withOpacity(0.45),
+                            alignment: Alignment.center,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.92),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                'Unavailable',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -848,12 +928,15 @@ class _WideDealCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        item.merchantName,
+                        shopDisplayName,
                         style: AppTypography.h5.copyWith(
                           fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
+                          color: unavailable
+                              ? AppColors.textSecondary
+                              : AppColors.textPrimary,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -862,7 +945,9 @@ class _WideDealCard extends StatelessWidget {
                       Text(
                         item.name,
                         style: AppTypography.bodySmall.copyWith(
-                          color: _homeSecondaryGrey,
+                          color: unavailable
+                              ? AppColors.textTertiary
+                              : _homeSecondaryGrey,
                           fontWeight: FontWeight.w600,
                         ),
                         maxLines: 1,
@@ -881,13 +966,21 @@ class _WideDealCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Icon(Icons.access_time, size: 14, color: _homeSecondaryGrey),
+                          const Icon(
+                            Icons.access_time,
+                            size: 14,
+                            color: _homeSecondaryGrey,
+                          ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              'Pickup: $pickupText',
+                              unavailable
+                                  ? 'Unavailable'
+                                  : 'Pickup: $pickupText',
                               style: AppTypography.caption.copyWith(
-                                color: _homeSecondaryGrey,
+                                color: unavailable
+                                    ? AppColors.textTertiary
+                                    : _homeSecondaryGrey,
                                 fontWeight: FontWeight.w600,
                               ),
                               maxLines: 1,
@@ -910,7 +1003,9 @@ class _WideDealCard extends StatelessWidget {
                           Text(
                             '${AppConstants.currencySymbol}${dynamicPrice.toStringAsFixed(2)}',
                             style: AppTypography.h5.copyWith(
-                              color: AppColors.accent,
+                              color: unavailable
+                                  ? AppColors.textTertiary
+                                  : AppColors.accent,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -925,6 +1020,11 @@ class _WideDealCard extends StatelessWidget {
         ),
       ),
     );
+
+    if (unavailable) {
+      return Opacity(opacity: 0.72, child: card);
+    }
+    return card;
   }
 }
 

@@ -36,6 +36,7 @@ class OrderProvider with ChangeNotifier {
     required double totalSavings,
     required FulfillmentType fulfillmentType,
     required PaymentMethod paymentMethod,
+    required PaymentStatus paymentStatus,
     String? deliveryAddress,
     String? pickupAddress,
   }) async {
@@ -56,13 +57,16 @@ class OrderProvider with ChangeNotifier {
         totalSavings: totalSavings,
         fulfillmentType: fulfillmentType,
         paymentMethod: paymentMethod,
+        paymentStatus: paymentStatus,
         deliveryAddress: deliveryAddress,
         pickupAddress: pickupAddress,
       );
 
       _currentOrder = order;
-      _orders.insert(0, order);
-      _activeOrders.insert(0, order);
+      if (paymentStatus == PaymentStatus.paid) {
+        _orders.insert(0, order);
+        _activeOrders.insert(0, order);
+      }
       _isLoading = false;
       notifyListeners();
       return order;
@@ -117,6 +121,13 @@ class OrderProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Stream<List<OrderModel>> watchMerchantOrders(
+    String merchantId, {
+    int limit = 100,
+  }) {
+    return _orderService.watchOrdersByMerchant(merchantId, limit: limit);
   }
 
   /// Get order by ID
@@ -182,16 +193,16 @@ class OrderProvider with ChangeNotifier {
 
   /// Filter orders by status
   List<OrderModel> getOrdersByStatus(OrderStatus status) {
-    return _orders.where((order) => order.status == status).toList();
+    return _orders.where((order) => order.orderStatus == status).toList();
   }
 
   /// Get completed orders
   List<OrderModel> get completedOrders =>
-      _orders.where((order) => order.status == OrderStatus.completed).toList();
+      _orders.where((order) => order.orderStatus == OrderStatus.completed).toList();
 
   /// Get cancelled orders
   List<OrderModel> get cancelledOrders =>
-      _orders.where((order) => order.status == OrderStatus.cancelled).toList();
+      _orders.where((order) => order.orderStatus == OrderStatus.cancelled).toList();
 
   /// Clear current order
   void clearCurrentOrder() {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Impact Dashboard Screen
 ///
@@ -17,6 +18,7 @@ class ImpactDashboardScreen extends StatelessWidget {
         title: Text('Your Impact', style: AppTypography.h3),
         backgroundColor: AppColors.background,
         elevation: 0,
+        leading: const AppBackButton(),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppConstants.paddingL),

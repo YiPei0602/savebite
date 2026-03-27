@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
 /// User Model
 ///
@@ -41,25 +42,8 @@ class UserModel {
   ///
   /// Converts Firestore Timestamp to DateTime
   factory UserModel.fromFirestore(Map<String, dynamic> json, String id) {
-    // Handle createdAt - can be Timestamp or DateTime string
-    DateTime createdAt;
-    if (json['createdAt'] is Timestamp) {
-      createdAt = (json['createdAt'] as Timestamp).toDate();
-    } else if (json['createdAt'] is String) {
-      createdAt = DateTime.parse(json['createdAt'] as String);
-    } else {
-      createdAt = DateTime.now();
-    }
-
-    // Handle updatedAt - optional
-    DateTime? updatedAt;
-    if (json['updatedAt'] != null) {
-      if (json['updatedAt'] is Timestamp) {
-        updatedAt = (json['updatedAt'] as Timestamp).toDate();
-      } else if (json['updatedAt'] is String) {
-        updatedAt = DateTime.parse(json['updatedAt'] as String);
-      }
-    }
+    final createdAt = dateTimeFromFirestoreWithDefault(json['createdAt']);
+    final updatedAt = dateTimeFromFirestore(json['updatedAt']);
 
     // Parse role string to UserRole enum
     UserRole role;
@@ -147,10 +131,8 @@ class UserModel {
       phoneNumber: json['phoneNumber'] as String?,
       address: json['address'] as String?,
       impactData: ImpactData.fromJson(json['impactData'] as Map<String, dynamic>),
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
-          : null,
+      createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
+      updatedAt: dateTimeFromFirestore(json['updatedAt']),
     );
   }
 
@@ -186,8 +168,8 @@ class UserModel {
       'phoneNumber': phoneNumber,
       'address': address,
       'impactData': impactData.toJson(),
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
+      'createdAt': Timestamp.fromDate(createdAt),
+      if (updatedAt != null) 'updatedAt': Timestamp.fromDate(updatedAt!),
     };
   }
 

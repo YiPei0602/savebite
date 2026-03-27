@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:savebite/features/auth_profile_impact/data/services/auth_service.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
@@ -11,10 +14,17 @@ class AuthProvider with ChangeNotifier {
   UserModel? _currentUser;
   bool _isLoading = false;
   String? _errorMessage;
+  StreamSubscription<User?>? _authSubscription;
 
   // Getters
   UserModel? get currentUser => _currentUser;
-  bool get isAuthenticated => _currentUser != null;
+
+  /// True when Firebase Auth has a user (source of truth for “signed in” redirects).
+  bool get hasFirebaseSession => _authService.firebaseUser != null;
+
+  /// Full session: Firebase user + Firestore profile loaded (checkout / profile UI).
+  bool get isAuthenticated =>
+      _authService.firebaseUser != null && _currentUser != null;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   UserRole? get userRole => _currentUser?.role;
@@ -23,6 +33,16 @@ class AuthProvider with ChangeNotifier {
   ///
   /// Check if user is already logged in via Firebase Auth
   Future<void> initialize() async {
+    await _authSubscription?.cancel();
+    _authSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user == null && _currentUser != null) {
+        _authService.clearLocalSession();
+        _currentUser = null;
+        notifyListeners();
+      }
+    });
+
     _isLoading = true;
     notifyListeners();
 
@@ -62,6 +82,7 @@ class AuthProvider with ChangeNotifier {
     required String lastName,
     required String email,
     required String password,
+    required String phoneE164,
     required UserRole role,
   }) async {
     _isLoading = true;
@@ -74,6 +95,7 @@ class AuthProvider with ChangeNotifier {
         lastName: lastName,
         email: email,
         password: password,
+        phoneE164: phoneE164,
         role: role,
       );
       _isLoading = false;
@@ -126,7 +148,6 @@ class AuthProvider with ChangeNotifier {
   Future<bool> updateProfile({
     String? name,
     String? phoneNumber,
-    String? address,
     String? profileImage,
   }) async {
     _isLoading = true;
@@ -137,7 +158,6 @@ class AuthProvider with ChangeNotifier {
       _currentUser = await _authService.updateProfile(
         name: name,
         phoneNumber: phoneNumber,
-        address: address,
         profileImage: profileImage,
       );
       _isLoading = false;
@@ -163,6 +183,12 @@ class AuthProvider with ChangeNotifier {
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 }
 

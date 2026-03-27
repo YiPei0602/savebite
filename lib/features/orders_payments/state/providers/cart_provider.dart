@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/shared/utils/surplus_sellability_utils.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
 
 /// Cart Provider
@@ -33,6 +34,13 @@ class CartProvider with ChangeNotifier {
 
   /// Add item to cart
   void addItem(FoodItemModel foodItem, {int quantity = 1}) {
+    final now = DateTime.now();
+    if (!isSurplusSellableToConsumer(foodItem, now)) {
+      throw Exception(
+        'This listing is no longer available (pickup window ended or sold out).',
+      );
+    }
+
     final existingIndex =
         _items.indexWhere((item) => item.foodItem.id == foodItem.id);
 
@@ -95,6 +103,12 @@ class CartProvider with ChangeNotifier {
 
     if (index >= 0) {
       final item = _items[index];
+      final now = DateTime.now();
+      if (!isSurplusSellableToConsumer(item.foodItem, now)) {
+        throw Exception(
+          'This listing is no longer available (pickup window ended or sold out).',
+        );
+      }
       final newQuantity = item.quantity + 1;
 
       if (newQuantity <= item.foodItem.stock) {

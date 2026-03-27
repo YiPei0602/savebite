@@ -5,7 +5,11 @@ import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Cart Screen
 ///
@@ -16,8 +20,8 @@ class CartScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<CartProvider>(
-      builder: (context, cartProvider, _) {
+    return Consumer2<CartProvider, MerchantProvider>(
+      builder: (context, cartProvider, merchantProvider, _) {
         final items = cartProvider.items;
         final isEmpty = cartProvider.isEmpty;
 
@@ -28,16 +32,7 @@ class CartScreen extends StatelessWidget {
             backgroundColor: AppColors.background,
             elevation: 0,
             iconTheme: IconThemeData(color: AppColors.textPrimary),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/home');
-                }
-              },
-            ),
+            leading: const AppBackButton(color: AppColors.textPrimary),
             title: Text(
               'Your Cart',
               style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
@@ -53,7 +48,7 @@ class CartScreen extends StatelessWidget {
           ),
           body: isEmpty
               ? _buildEmptyCart(context)
-              : _buildCartContent(context, cartProvider),
+              : _buildCartContent(context, cartProvider, merchantProvider),
         );
       },
     );
@@ -138,7 +133,11 @@ class CartScreen extends StatelessWidget {
   }
 
   /// Cart Content with Items
-  Widget _buildCartContent(BuildContext context, CartProvider cartProvider) {
+  Widget _buildCartContent(
+    BuildContext context,
+    CartProvider cartProvider,
+    MerchantProvider merchantProvider,
+  ) {
     return Column(
       children: [
         Expanded(
@@ -147,7 +146,12 @@ class CartScreen extends StatelessWidget {
             itemCount: cartProvider.items.length,
             itemBuilder: (context, index) {
               final cartItem = cartProvider.items[index];
-              return _buildCartItem(context, cartProvider, cartItem);
+              return _buildCartItem(
+                context,
+                cartProvider,
+                cartItem,
+                merchantProvider,
+              );
             },
           ),
         ),
@@ -161,10 +165,23 @@ class CartScreen extends StatelessWidget {
     BuildContext context,
     CartProvider cartProvider,
     CartItemModel cartItem,
+    MerchantProvider merchantProvider,
   ) {
     final item = cartItem.foodItem;
+    MerchantModel? mFor(String id) {
+      for (final m in merchantProvider.merchants) {
+        if (m.id == id) return m;
+      }
+      return null;
+    }
+
+    final shopName = consumerShopDisplayName(
+      merchantId: item.merchantId,
+      merchantProfile: mFor(item.merchantId),
+      fromFoodItem: item.merchantName,
+    );
     final quantity = cartItem.quantity;
-    final price = item.discountedPrice;
+    final price = item.effectiveDiscountedPrice;
     final originalPrice = item.originalPrice;
     final itemTotal = cartItem.subtotal;
     final itemSavings = cartItem.savings;
@@ -222,7 +239,7 @@ class CartScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppConstants.paddingXS),
                   Text(
-                    item.merchantName,
+                    shopName,
                     style: AppTypography.bodySmall.copyWith(
                       color: AppColors.textSecondary,
                     ),
@@ -439,10 +456,7 @@ class CartScreen extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: MediaQuery.of(context).size.width * 0.05,
-            vertical: AppConstants.paddingM,
-          ),
+          padding: AppConstants.primaryCtaFooterBlockPadding,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -511,20 +525,23 @@ class CartScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              SizedBox(height: MediaQuery.of(context).size.height * 0.02),
+              const SizedBox(height: AppConstants.paddingM),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: proceedToCheckout,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
-                    padding: EdgeInsets.symmetric(
-                      vertical: MediaQuery.of(context).size.height * 0.02,
+                    foregroundColor: AppColors.textOnPrimary,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppConstants.primaryCtaVerticalPadding,
                     ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.primaryCtaPillRadius,
+                      ),
                     ),
-                    elevation: 2,
+                    elevation: 0,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -533,8 +550,9 @@ class CartScreen extends StatelessWidget {
                       Flexible(
                         child: Text(
                           'Proceed to Checkout',
-                          style: AppTypography.buttonLarge.copyWith(
+                          style: AppTypography.buttonMedium.copyWith(
                             color: AppColors.textOnPrimary,
+                            fontWeight: FontWeight.w600,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),

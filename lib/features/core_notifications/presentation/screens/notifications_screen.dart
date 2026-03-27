@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
-import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
-import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Notifications Screen
 ///
@@ -29,19 +27,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              final role = context.read<AuthProvider>().userRole;
-              context.go(
-                role == UserRole.merchant ? '/merchant-dashboard' : '/home',
-              );
-            }
-          },
-        ),
+        leading: const AppBackButton(),
         title: Column(
           children: [
             Text('Notifications', style: AppTypography.h4),

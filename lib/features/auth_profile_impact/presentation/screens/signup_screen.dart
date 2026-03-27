@@ -4,10 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/shared/widgets/custom_button.dart';
 import 'package:savebite/shared/widgets/status_modal.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/shared/utils/malaysia_phone_utils.dart';
 
 /// Signup Screen
 ///
@@ -24,6 +26,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   String _selectedRole = AppConstants.roleConsumer;
@@ -48,14 +51,18 @@ class _SignupScreenState extends State<SignupScreen> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _emailController.dispose();
+    _phoneController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
   }
 
   bool get _isFormValid {
+    final phoneOk =
+        normalizeMalaysianMobileToE164(_phoneController.text.trim()) != null;
     return _firstNameController.text.trim().isNotEmpty &&
         _lastNameController.text.trim().isNotEmpty &&
+        phoneOk &&
         _emailController.text.trim().isNotEmpty &&
         _passwordController.text.isNotEmpty &&
         _confirmPasswordController.text.isNotEmpty &&
@@ -78,12 +85,16 @@ class _SignupScreenState extends State<SignupScreen> {
       role = UserRole.consumer;
     }
 
+    final phoneE164 =
+        normalizeMalaysianMobileToE164(_phoneController.text.trim())!;
+
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final success = await authProvider.signup(
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
       email: _emailController.text.trim(),
       password: _passwordController.text,
+      phoneE164: phoneE164,
       role: role,
     );
 
@@ -100,7 +111,7 @@ class _SignupScreenState extends State<SignupScreen> {
           Navigator.of(context).pop(); // Close modal
           final userRole = authProvider.userRole;
           if (userRole == UserRole.merchant) {
-            context.go('/merchant-dashboard');
+            context.go('/merchant-profile');
           } else {
             context.go('/home');
           }
@@ -121,14 +132,6 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _navigateBackToWelcome() {
-    if (_selectedRole.isNotEmpty) {
-      context.go('/welcome?role=$_selectedRole');
-    } else {
-      context.go('/welcome');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,9 +139,9 @@ class _SignupScreenState extends State<SignupScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: _navigateBackToWelcome,
+        leading: const AppBackButton(
+          color: AppColors.textPrimary,
+          fallbackRoute: '/welcome',
         ),
       ),
       body: SafeArea(
@@ -246,6 +249,42 @@ class _SignupScreenState extends State<SignupScreen> {
                     }
                     return null;
                   },
+                  onChanged: (_) => setState(() {}),
+                ),
+
+                const SizedBox(height: AppConstants.paddingM),
+
+                TextFormField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  autocorrect: false,
+                  decoration: InputDecoration(
+                    labelText: 'Mobile number',
+                    hintText: 'e.g. 012-345 6789 or 011-1234 5678',
+                    helperText: 'Malaysia (+60) mobile numbers only',
+                    hintStyle: AppTypography.inputHint.copyWith(
+                      color: const Color(0xFF60646C),
+                    ),
+                    prefixIcon: const Icon(Icons.phone_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: const BorderSide(color: AppColors.border),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      borderSide: const BorderSide(
+                        color: AppColors.borderActive,
+                        width: 2,
+                      ),
+                    ),
+                    filled: true,
+                    fillColor: AppColors.surface,
+                  ),
+                  validator: validateMalaysianMobileField,
                   onChanged: (_) => setState(() {}),
                 ),
 

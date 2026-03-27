@@ -1,3 +1,6 @@
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
+import 'package:savebite/shared/utils/merchant_operating_hours_firestore.dart';
+
 /// Merchant Model
 ///
 /// Represents a merchant/restaurant in the SaveBite platform.
@@ -7,62 +10,89 @@ class MerchantModel {
   final String description;
   final String imageUrl;
   final String address;
-  final double latitude;
-  final double longitude;
+  final double? latitude;
+  final double? longitude;
   final double rating;
   final int reviewCount;
   final String phoneNumber;
   final String email;
   final List<String> categories;
-  final bool isActive;
+  /// Store open for customers (synced from Malaysia schedule when complete).
+  final bool isOpen;
+  /// Opening time `HH:mm` (Malaysia wall clock). Firestore: [Timestamp] on anchor date.
+  final String? openingTime;
+  /// Closing time `HH:mm` (Malaysia). May be after midnight vs [openingTime] (overnight).
+  final String? closingTime;
+  /// Days of week the store operates. Values: 1=Mon ... 7=Sun.
+  final List<int> operatingDays;
   final DateTime createdAt;
   final DateTime? updatedAt;
 
   MerchantModel({
     required this.id,
     required this.name,
-    required this.description,
-    required this.imageUrl,
-    required this.address,
-    required this.latitude,
-    required this.longitude,
-    required this.rating,
-    required this.reviewCount,
+    this.description = '',
+    this.imageUrl = '',
+    this.address = '',
+    this.latitude,
+    this.longitude,
+    this.rating = 0.0,
+    this.reviewCount = 0,
     required this.phoneNumber,
     required this.email,
-    required this.categories,
-    this.isActive = true,
+    this.categories = const <String>[],
+    this.isOpen = true,
+    this.openingTime,
+    this.closingTime,
+    this.operatingDays = const <int>[],
     required this.createdAt,
     this.updatedAt,
   });
 
-  factory MerchantModel.fromJson(Map<String, dynamic> json) {
+  factory MerchantModel.fromFirestore(Map<String, dynamic> json, String id) {
+    final createdAt = dateTimeFromFirestoreWithDefault(json['createdAt']);
+    final updatedAt = dateTimeFromFirestore(json['updatedAt']);
+
     return MerchantModel(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      description: json['description'] as String,
-      imageUrl: json['imageUrl'] as String,
-      address: json['address'] as String,
-      latitude: (json['latitude'] as num).toDouble(),
-      longitude: (json['longitude'] as num).toDouble(),
-      rating: (json['rating'] as num).toDouble(),
-      reviewCount: json['reviewCount'] as int,
-      phoneNumber: json['phoneNumber'] as String,
-      email: json['email'] as String,
-      categories:
-          (json['categories'] as List<dynamic>).map((cat) => cat as String).toList(),
-      isActive: json['isActive'] as bool? ?? true,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'] as String)
-          : null,
+      id: id,
+      name: ((json['name'] as String?)?.trim().isNotEmpty == true)
+          ? (json['name'] as String).trim()
+          : ((json['shopName'] as String?)?.trim().isNotEmpty == true)
+              ? (json['shopName'] as String).trim()
+              : 'Your Store',
+      description: (json['description'] as String?) ?? '',
+      imageUrl: (json['imageUrl'] as String?) ?? '',
+      address: (json['address'] as String?) ?? '',
+      latitude: (json['latitude'] as num?)?.toDouble(),
+      longitude: (json['longitude'] as num?)?.toDouble(),
+      rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+      reviewCount: (json['reviewCount'] as int?) ?? 0,
+      phoneNumber: (json['phoneNumber'] as String?) ?? '',
+      email: (json['email'] as String?) ?? '',
+      categories: (json['categories'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const <String>[],
+      // Back-compat: prefer `isOpen`; legacy `isActive` still read.
+      isOpen: (json['isOpen'] as bool?) ?? (json['isActive'] as bool?) ?? true,
+      openingTime: MerchantOperatingHoursFirestore.readHhMm(json['openingTime']),
+      closingTime: MerchantOperatingHoursFirestore.readHhMm(json['closingTime']),
+      operatingDays: (json['operatingDays'] as List<dynamic>?)
+              ?.map((d) => (d as num).toInt())
+              .where((d) => d >= 1 && d <= 7)
+              .toSet()
+              .toList(growable: false) ??
+          const <int>[],
+      createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 
-  Map<String, dynamic> toJson() {
+  Map<String, dynamic> toFirestore() {
     return {
-      'id': id,
       'name': name,
+      // Alias for schema compatibility / readability.
+      'shopName': name,
       'description': description,
       'imageUrl': imageUrl,
       'address': address,
@@ -73,9 +103,10 @@ class MerchantModel {
       'phoneNumber': phoneNumber,
       'email': email,
       'categories': categories,
-      'isActive': isActive,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
+      'isOpen': isOpen,
+      'openingTime': MerchantOperatingHoursFirestore.writeHhMm(openingTime),
+      'closingTime': MerchantOperatingHoursFirestore.writeHhMm(closingTime),
+      'operatingDays': operatingDays,
     };
   }
 
@@ -92,7 +123,10 @@ class MerchantModel {
     String? phoneNumber,
     String? email,
     List<String>? categories,
-    bool? isActive,
+    bool? isOpen,
+    String? openingTime,
+    String? closingTime,
+    List<int>? operatingDays,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -109,7 +143,10 @@ class MerchantModel {
       phoneNumber: phoneNumber ?? this.phoneNumber,
       email: email ?? this.email,
       categories: categories ?? this.categories,
-      isActive: isActive ?? this.isActive,
+      isOpen: isOpen ?? this.isOpen,
+      openingTime: openingTime ?? this.openingTime,
+      closingTime: closingTime ?? this.closingTime,
+      operatingDays: operatingDays ?? this.operatingDays,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

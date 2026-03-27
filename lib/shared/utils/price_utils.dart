@@ -1,5 +1,3 @@
-import 'dart:math';
-
 /// Price Utilities
 /// 
 /// Helper functions for computing dynamic discounts based on time remaining.
@@ -28,29 +26,29 @@ class PriceUtils {
     required int minPercent,
     required int maxPercent,
     required DateTime closingTime,
-    double totalWindowHours = 8.0,
   }) {
-    final now = DateTime.now();
-    final timeRemaining = closingTime.difference(now);
-    
-    // If already closed or invalid time, return max discount
-    if (timeRemaining.inSeconds <= 0) {
-      return maxPercent;
+    final max = maxPercent.clamp(0, 100);
+    final minPct = minPercent.clamp(0, max);
+    final span = max - minPct;
+    if (span == 0) return minPct;
+
+    final minutesLeft = closingTime.difference(DateTime.now()).inMinutes;
+    if (minutesLeft <= 0) return max;
+
+    final double t;
+    if (minutesLeft > 240) {
+      t = 0.0;
+    } else if (minutesLeft > 120) {
+      t = 0.2;
+    } else if (minutesLeft > 60) {
+      t = 0.4;
+    } else if (minutesLeft > 30) {
+      t = 0.7;
+    } else {
+      t = 1.0;
     }
-    
-    // Calculate progress (0 = far from closing, 1 = near closing)
-    final totalWindowSeconds = totalWindowHours * 3600;
-    final timeRemainingSeconds = timeRemaining.inSeconds.toDouble();
-    
-    // Invert the ratio so discount increases as closing approaches
-    final progress = 1.0 - min(timeRemainingSeconds / totalWindowSeconds, 1.0);
-    final clampedProgress = max(0.0, min(1.0, progress));
-    
-    // Compute current discount
-    final discountRange = maxPercent - minPercent;
-    final currentDiscount = minPercent + (discountRange * clampedProgress);
-    
-    return currentDiscount.round();
+
+    return (minPct + (span * t)).round().clamp(0, 100);
   }
 
   /// Compute discounted price from original price and discount percentage.

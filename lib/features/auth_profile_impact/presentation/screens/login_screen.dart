@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/shared/widgets/custom_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
@@ -96,14 +97,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void _navigateBackToWelcome() {
-    if (_selectedRole != null && _selectedRole!.isNotEmpty) {
-      context.go('/welcome?role=$_selectedRole');
-    } else {
-      context.go('/welcome');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -111,9 +104,9 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: _navigateBackToWelcome,
+        leading: const AppBackButton(
+          color: AppColors.textPrimary,
+          fallbackRoute: '/welcome',
         ),
       ),
       body: SafeArea(

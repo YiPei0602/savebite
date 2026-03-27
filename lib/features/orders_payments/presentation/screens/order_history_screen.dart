@@ -6,10 +6,13 @@ import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
-import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/order_provider.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Order History Screen
 ///
@@ -31,18 +34,40 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = context.read<AuthProvider>();
       final orderProvider = context.read<OrderProvider>();
+      final mp = context.read<MerchantProvider>();
+      if (mp.merchants.isEmpty && !mp.isLoading) {
+        mp.loadMerchants();
+      }
       if (authProvider.currentUser != null) {
         orderProvider.loadUserOrders(authProvider.currentUser!.id);
       }
     });
   }
 
+  String _shopDisplayNameForOrder(
+    OrderModel order,
+    MerchantProvider merchantProvider,
+  ) {
+    MerchantModel? m;
+    for (final x in merchantProvider.merchants) {
+      if (x.id == order.merchantId) {
+        m = x;
+        break;
+      }
+    }
+    return consumerShopDisplayName(
+      merchantId: order.merchantId,
+      merchantProfile: m,
+      fromFoodItem: order.merchantName,
+    );
+  }
+
   List<OrderModel> _getFilteredOrders(List<OrderModel> orders) {
     switch (_selectedFilter) {
       case 'Completed':
-        return orders.where((o) => o.status == OrderStatus.completed).toList();
+        return orders.where((o) => o.orderStatus == OrderStatus.completed).toList();
       case 'Cancelled':
-        return orders.where((o) => o.status == OrderStatus.cancelled).toList();
+        return orders.where((o) => o.orderStatus == OrderStatus.cancelled).toList();
       default:
         return orders;
     }
@@ -73,6 +98,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     BuildContext context,
     OrderModel order,
     CartProvider cartProvider,
+    MerchantProvider merchantProvider,
   ) {
     showDialog(
       context: context,
@@ -108,7 +134,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             })),
             const SizedBox(height: AppConstants.paddingM),
             Text(
-              'From: ${order.merchantName}',
+              'From: ${_shopDisplayNameForOrder(order, merchantProvider)}',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textSecondary,
               ),
@@ -148,8 +174,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  void _viewOrderDetails(BuildContext context, OrderModel order) {
-    final statusStr = _formatOrderStatus(order.status);
+  void _viewOrderDetails(
+    BuildContext context,
+    OrderModel order,
+    MerchantProvider merchantProvider,
+  ) {
+    final statusStr = _formatOrderStatus(order.orderStatus);
     final dateStr = DateFormat('d MMM yyyy').format(order.createdAt);
     final timeStr = DateFormat('h:mm a').format(order.createdAt);
 
@@ -193,7 +223,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                   ),
                   const SizedBox(height: AppConstants.paddingL),
                   _buildDetailRow('Order ID', '#${order.id}'),
-                  _buildDetailRow('Restaurant', order.merchantName),
+                  _buildDetailRow(
+                    'Restaurant',
+                    _shopDisplayNameForOrder(order, merchantProvider),
+                  ),
                   _buildDetailRow('Date', '$dateStr, $timeStr'),
                   _buildDetailRow(
                     'Type',
@@ -251,7 +284,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingL),
-                  if (order.status == OrderStatus.completed)
+                  if (order.orderStatus == OrderStatus.completed)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -261,6 +294,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                             context,
                             order,
                             context.read<CartProvider>(),
+                            context.read<MerchantProvider>(),
                           );
                         },
                         style: ElevatedButton.styleFrom(
@@ -268,7 +302,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         child: Text('Reorder', style: AppTypography.buttonMedium),
                       ),
                     )
-                  else if (order.status != OrderStatus.cancelled)
+                  else if (order.orderStatus != OrderStatus.cancelled)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -440,9 +474,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<AuthProvider, OrderProvider>(
-      builder: (context, authProvider, orderProvider, _) {
-        final filteredOrders = _getFilteredOrders(orderProvider.orders);
+    return Consumer3<AuthProvider, OrderProvider, MerchantProvider>(
+      builder: (context, authProvider, orderProvider, merchantProvider, _) {
+        final paidOnly = orderProvider.orders
+            .where((o) => o.paymentStatus == PaymentStatus.paid)
+            .toList();
+        final filteredOrders = _getFilteredOrders(paidOnly);
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -450,20 +487,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             title: Text('Past Orders', style: AppTypography.h3),
             backgroundColor: AppColors.background,
             elevation: 0,
-            leading: IconButton(
-              icon:
-                  const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  final role = authProvider.userRole;
-                  context.go(role == UserRole.merchant
-                      ? '/merchant-dashboard'
-                      : '/home');
-                }
-              },
-            ),
+            leading: const AppBackButton(color: AppColors.textPrimary),
             actions: [
               IconButton(
                 icon: const Icon(Icons.filter_list,
@@ -486,7 +510,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                               itemCount: filteredOrders.length,
                               itemBuilder: (context, index) {
                                 final order = filteredOrders[index];
-                                return _buildOrderCard(context, order);
+                                return _buildOrderCard(
+                                  context,
+                                  order,
+                                  merchantProvider,
+                                );
                               },
                             ),
                     ),
@@ -532,9 +560,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  Widget _buildOrderCard(BuildContext context, OrderModel order) {
-    final statusStr = _formatOrderStatus(order.status);
-    final isCompleted = order.status == OrderStatus.completed;
+  Widget _buildOrderCard(
+    BuildContext context,
+    OrderModel order,
+    MerchantProvider merchantProvider,
+  ) {
+    final statusStr = _formatOrderStatus(order.orderStatus);
+    final isCompleted = order.orderStatus == OrderStatus.completed;
     final dateStr = DateFormat('d MMM yyyy').format(order.createdAt);
     final timeStr = DateFormat('h:mm a').format(order.createdAt);
 
@@ -545,7 +577,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
       ),
       child: InkWell(
-        onTap: () => _viewOrderDetails(context, order),
+        onTap: () =>
+            _viewOrderDetails(context, order, merchantProvider),
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.paddingM),
@@ -557,7 +590,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      order.merchantName,
+                      _shopDisplayNameForOrder(order, merchantProvider),
                       style: AppTypography.h5,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -626,6 +659,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         context,
                         order,
                         context.read<CartProvider>(),
+                        merchantProvider,
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
@@ -646,9 +680,13 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         ],
                       ),
                     ),
-                  if (!isCompleted && order.status != OrderStatus.cancelled)
+                  if (!isCompleted && order.orderStatus != OrderStatus.cancelled)
                     OutlinedButton(
-                      onPressed: () => _viewOrderDetails(context, order),
+                      onPressed: () => _viewOrderDetails(
+                        context,
+                        order,
+                        merchantProvider,
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textSecondary,
                         side: const BorderSide(color: AppColors.border),

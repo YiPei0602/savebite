@@ -10,20 +10,23 @@ import '../../features/auth_profile_impact/presentation/screens/signup_screen.da
 import '../../features/marketplace_surplus/presentation/screens/home_screen.dart';
 import '../../features/auth_profile_impact/presentation/screens/profile_screen.dart';
 import '../../features/auth_profile_impact/presentation/screens/impact_dashboard_screen.dart';
-import '../../features/merchant_management/presentation/screens/merchant_dashboard_screen.dart';
 import '../../features/merchant_management/presentation/screens/add_surplus_screen.dart';
-import '../../features/merchant_management/presentation/screens/merchant_orders_screen.dart';
+import '../../features/merchant_management/presentation/screens/merchant_shell_screen.dart';
+import '../../features/merchant_management/presentation/screens/merchant_store_setup_screen.dart';
 import '../../features/auth_profile_impact/presentation/screens/edit_profile_screen.dart';
 import '../../features/orders_payments/presentation/screens/payment_methods_screen.dart';
 import '../../features/core_notifications/presentation/screens/notifications_screen.dart';
 import '../../features/donations/presentation/screens/donation_prompt_screen.dart';
 import '../../features/orders_payments/presentation/screens/cart_screen.dart';
 import '../../features/orders_payments/presentation/screens/checkout_screen.dart';
+import '../../features/orders_payments/presentation/screens/mock_payment_screen.dart';
+import '../../features/orders_payments/domain/mock_payment_checkout_args.dart';
 import '../../features/orders_payments/presentation/screens/order_history_screen.dart';
 import '../../features/orders/screens/order_tracking_screen.dart';
-import '../../features/orders/screens/track_order_screen.dart';
 import '../../features/marketplace_surplus/presentation/screens/merchant_details_screen.dart';
+import '../../features/marketplace_surplus/presentation/screens/food_item_detail_screen.dart';
 import '../../features/marketplace_surplus/presentation/screens/category_listing_screen.dart';
+import '../../features/marketplace_surplus/domain/models/food_item_model.dart';
 
 /// Public routes that don't require authentication
 const _publicRoutes = [
@@ -39,21 +42,27 @@ const _merchantOnlyRoutePrefixes = [
   '/merchant-dashboard',
   '/add-surplus',
   '/merchant-orders',
+  '/merchant-profile',
+  '/merchant-store-setup',
   '/donation-prompt',
+];
+
+/// Routes that are valid for both roles (authenticated).
+const _sharedRoutePrefixes = [
+  '/edit-profile',
 ];
 
 const _consumerOnlyRoutePrefixes = [
   '/home',
   '/profile',
   '/impact',
-  '/edit-profile',
   '/payment-methods',
   '/notifications',
   '/cart',
   '/checkout',
+  '/mock-payment',
   '/order-history',
   '/order-tracking',
-  '/track-order',
   '/category/',
   '/merchant/', // consumer marketplace merchant-details
 ];
@@ -81,7 +90,7 @@ class AppRouter {
       initialLocation: '/landing',
       refreshListenable: authProvider,
       redirect: (BuildContext context, GoRouterState state) {
-        final isAuthenticated = authProvider.isAuthenticated;
+        final hasFirebaseSession = authProvider.hasFirebaseSession;
         final isLoading = authProvider.isLoading;
         final role = authProvider.userRole;
         final location = state.uri.path;
@@ -99,8 +108,9 @@ class AppRouter {
           (route) => location == route || location.startsWith('$route/'),
         );
 
-        if (!isAuthenticated) {
-          // Not logged in: redirect protected routes to landing
+        // Only treat as logged out when Firebase Auth has no user (avoid false kicks
+        // when profile is still loading or briefly out of sync).
+        if (!hasFirebaseSession) {
           if (!isPublicRoute) return '/landing';
           return null;
         }
@@ -116,13 +126,18 @@ class AppRouter {
             _startsWithAnyPrefix(location, _merchantOnlyRoutePrefixes);
         final isConsumerOnly =
             _startsWithAnyPrefix(location, _consumerOnlyRoutePrefixes);
+        final isShared = _startsWithAnyPrefix(location, _sharedRoutePrefixes);
 
-        if (role == UserRole.merchant && isConsumerOnly) return _homeForRole(role);
-        if (role == UserRole.consumer && isMerchantOnly) return _homeForRole(role);
+        if (role == UserRole.merchant && isConsumerOnly && !isShared) {
+          return _homeForRole(role);
+        }
+        if (role == UserRole.consumer && isMerchantOnly && !isShared) {
+          return _homeForRole(role);
+        }
 
         // Apply role rules to all remaining protected routes too:
         // any protected route must be explicitly categorized, otherwise redirect to role home.
-        if (!isMerchantOnly && !isConsumerOnly) {
+        if (!isMerchantOnly && !isConsumerOnly && !isShared) {
           return _homeForRole(role);
         }
 
@@ -187,17 +202,40 @@ class AppRouter {
         GoRoute(
           path: '/merchant-dashboard',
           name: 'merchant-dashboard',
-          builder: (context, state) => const MerchantDashboardScreen(),
+          builder: (context, state) =>
+              const MerchantShellScreen(initialTabIndex: 0),
         ),
         GoRoute(
           path: '/add-surplus',
           name: 'add-surplus',
-          builder: (context, state) => const AddSurplusScreen(),
+          builder: (context, state) => AddSurplusScreen(
+            initialItem: state.extra is FoodItemModel ? state.extra as FoodItemModel : null,
+          ),
         ),
         GoRoute(
           path: '/merchant-orders',
           name: 'merchant-orders',
-          builder: (context, state) => const MerchantOrdersScreen(),
+          builder: (context, state) =>
+              const MerchantShellScreen(initialTabIndex: 1),
+        ),
+        GoRoute(
+          path: '/merchant-profile',
+          name: 'merchant-profile',
+          builder: (context, state) =>
+              const MerchantShellScreen(initialTabIndex: 2),
+        ),
+        GoRoute(
+          path: '/merchant-store-setup',
+          name: 'merchant-store-setup',
+          builder: (context, state) {
+            // Default: onboarding (used right after merchant signup).
+            // Use `/merchant-store-setup?onboarding=false` to open as an editable
+            // store profile screen that returns to previous page after save.
+            final isOnboarding = state.uri.queryParameters['onboarding'] == 'false'
+                ? false
+                : true;
+            return MerchantStoreSetupScreen(isOnboarding: isOnboarding);
+          },
         ),
 
         // ========================================================================
@@ -245,6 +283,19 @@ class AppRouter {
           name: 'checkout',
           builder: (context, state) => const CheckoutScreen(),
         ),
+        GoRoute(
+          path: '/mock-payment',
+          name: 'mock-payment',
+          builder: (context, state) {
+            final extra = state.extra;
+            if (extra is! MockPaymentCheckoutArgs) {
+              return const Scaffold(
+                body: Center(child: Text('Invalid checkout state')),
+              );
+            }
+            return MockPaymentScreen(args: extra);
+          },
+        ),
 
         // ========================================================================
         // ORDER ROUTES
@@ -262,33 +313,23 @@ class AppRouter {
             return OrderTrackingScreen(orderId: orderId);
           },
         ),
-        GoRoute(
-          path: '/track-order',
-          name: 'track-order',
-          builder: (context, state) {
-            // Get parameters from extra
-            final extra = state.extra as Map<String, dynamic>?;
-            if (extra != null) {
-              return TrackOrderScreen(
-                orderId: extra['orderId'] as String,
-                cartItems:
-                    extra['cartItems'] as Map<String, Map<String, dynamic>>,
-                subtotal: extra['subtotal'] as double,
-                totalSavings: extra['totalSavings'] as double,
-                isSelfPickup: extra['isSelfPickup'] as bool,
-                paymentMethod: extra['paymentMethod'] as String,
-              );
-            }
-            // Fallback - should not happen
-            return const Scaffold(
-              body: Center(child: Text('Invalid order data')),
-            );
-          },
-        ),
 
         // ========================================================================
         // MARKETPLACE ROUTES
         // ========================================================================
+        GoRoute(
+          path: '/merchant/:merchantId/item/:itemId',
+          name: 'food-item-detail',
+          builder: (context, state) {
+            final extra = state.extra;
+            if (extra is FoodItemModel) {
+              return FoodItemDetailScreen(item: extra);
+            }
+            return const Scaffold(
+              body: Center(child: Text('Missing item')),
+            );
+          },
+        ),
         GoRoute(
           path: '/merchant/:merchantId',
           name: 'merchant-details',

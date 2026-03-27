@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 
 /// Authentication Service
 ///
@@ -26,6 +28,11 @@ class AuthService {
 
   /// Check if user is authenticated
   bool get isAuthenticated => _auth.currentUser != null && _currentUser != null;
+
+  /// Clears cached profile when Firebase Auth signs out without going through [logout].
+  void clearLocalSession() {
+    _currentUser = null;
+  }
 
   /// Login with email and password
   ///
@@ -103,6 +110,7 @@ class AuthService {
     required String lastName,
     required String email,
     required String password,
+    required String phoneE164,
     required UserRole role,
   }) async {
     try {
@@ -123,6 +131,7 @@ class AuthService {
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
         'email': email.trim(),
+        'phoneNumber': phoneE164,
         'role': roleString,
         if (role == UserRole.merchant) 'merchantId': firebaseUser.uid,
         'createdAt': FieldValue.serverTimestamp(),
@@ -130,12 +139,32 @@ class AuthService {
 
       await _firestore.collection('users').doc(firebaseUser.uid).set(userData);
 
+      // Create a merchant document stub so merchant profile screens can read it.
+      // If this fails (e.g. Firestore rules), the merchant can still create it later
+      // from the Store Profile screen.
+      if (role == UserRole.merchant) {
+        try {
+          await MerchantService().createMerchant(
+            MerchantModel(
+              id: firebaseUser.uid,
+              name: '',
+              address: '',
+              phoneNumber: '',
+              email: email.trim(),
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+            ),
+          );
+        } catch (_) {}
+      }
+
       _currentUser = UserModel(
         id: firebaseUser.uid,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         role: role,
+        phoneNumber: phoneE164,
         merchantId: role == UserRole.merchant ? firebaseUser.uid : null,
         impactData: ImpactData(
           mealsSaved: 0,
@@ -222,11 +251,12 @@ class AuthService {
 
   /// Update user profile
   ///
-  /// Updates both Firestore document and local UserModel
+  /// Updates both Firestore document and local UserModel.
+  /// Note: Address is not editable here. For consumers, use delivery address
+  /// at checkout. For merchants, address is in Store Profile.
   Future<UserModel> updateProfile({
     String? name,
     String? phoneNumber,
-    String? address,
     String? profileImage,
   }) async {
     try {
@@ -239,7 +269,6 @@ class AuthService {
         'updatedAt': FieldValue.serverTimestamp(),
       };
       if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber.trim();
-      if (address != null) updateData['address'] = address.trim();
       if (profileImage != null) updateData['profileImage'] = profileImage;
 
       await _firestore.collection('users').doc(firebaseUser.uid).update(updateData);
@@ -247,7 +276,6 @@ class AuthService {
       if (_currentUser != null) {
         _currentUser = _currentUser!.copyWith(
           phoneNumber: phoneNumber ?? _currentUser!.phoneNumber,
-          address: address ?? _currentUser!.address,
           profileImage: profileImage ?? _currentUser!.profileImage,
           updatedAt: DateTime.now(),
         );

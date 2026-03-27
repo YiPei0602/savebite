@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
 /// Cart Item Model
 ///
@@ -21,7 +23,7 @@ class CartItemModel {
       id: json['id'] as String,
       foodItem: FoodItemModel.fromJson(json['foodItem'] as Map<String, dynamic>),
       quantity: json['quantity'] as int,
-      addedAt: DateTime.parse(json['addedAt'] as String),
+      addedAt: dateTimeFromFirestoreWithDefault(json['addedAt']),
     );
   }
 
@@ -30,7 +32,7 @@ class CartItemModel {
       'id': id,
       'foodItem': foodItem.toJson(),
       'quantity': quantity,
-      'addedAt': addedAt.toIso8601String(),
+      'addedAt': Timestamp.fromDate(addedAt),
     };
   }
 
@@ -49,11 +51,11 @@ class CartItemModel {
   }
 
   double get subtotal {
-    return foodItem.discountedPrice * quantity;
+    return foodItem.effectiveDiscountedPrice * quantity;
   }
 
   double get savings {
-    return (foodItem.originalPrice - foodItem.discountedPrice) * quantity;
+    return foodItem.effectiveSavings * quantity;
   }
 }
 

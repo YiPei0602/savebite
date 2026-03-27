@@ -45,15 +45,13 @@ dependencies:
   firebase_core: ^4.3.0
   firebase_auth: ^6.1.3
   cloud_firestore: ^6.1.1
+  flutter_stripe: ^11.5.0
   # firebase_storage: ^11.6.0  # Not needed for Sprint 1
   
   # Location & Maps
   google_maps_flutter: ^2.5.0
   geolocator: ^13.0.2
   geocoding: ^4.0.0
-  
-  # Payment
-  # flutter_stripe: ^10.1.1
   
   # HTTP & API
   http: ^1.2.0
@@ -76,6 +74,7 @@ dependencies:
   flutter_svg: ^2.0.9
   badges: ^3.1.2
   firebase_storage: ^13.1.0
+  timezone: ^0.10.1
 
 dev_dependencies:
   flutter_test:
@@ -87,6 +86,11 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^4.0.0
+
+# Vendored patch: upstream 11.5.0 used Color r/g/b/a floats removed in recent Flutter.
+dependency_overrides:
+  stripe_platform_interface:
+    path: packages/stripe_platform_interface
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
 /// Donation Model
 ///
@@ -44,11 +46,10 @@ class DonationModel {
         (e) => e.toString() == 'DonationStatus.${json['status']}',
         orElse: () => DonationStatus.pending,
       ),
-      scheduledPickupTime: DateTime.parse(json['scheduledPickupTime'] as String),
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      completedAt: json['completedAt'] != null
-          ? DateTime.parse(json['completedAt'] as String)
-          : null,
+      scheduledPickupTime:
+          dateTimeFromFirestoreWithDefault(json['scheduledPickupTime']),
+      createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
+      completedAt: dateTimeFromFirestore(json['completedAt']),
       notes: json['notes'] as String?,
     );
   }
@@ -62,9 +63,9 @@ class DonationModel {
       'ngoName': ngoName,
       'items': items.map((item) => item.toJson()).toList(),
       'status': status.toString().split('.').last,
-      'scheduledPickupTime': scheduledPickupTime.toIso8601String(),
-      'createdAt': createdAt.toIso8601String(),
-      'completedAt': completedAt?.toIso8601String(),
+      'scheduledPickupTime': Timestamp.fromDate(scheduledPickupTime),
+      'createdAt': Timestamp.fromDate(createdAt),
+      'completedAt': timestampFromDateTime(completedAt),
       'notes': notes,
     };
   }

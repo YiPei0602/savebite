@@ -30,9 +30,9 @@ class AppColors {
   // BACKGROUND & SURFACE COLORS
   // ============================================================================
 
-  /// Main Background - Vista White (Warm Off-White)
+  /// Main Background - Pure White
   /// Usage: App background, screen backgrounds
-  static const Color background = Color(0xFFF9F3F0);
+  static const Color background = Color(0xFFFFFFFF);
 
   /// Card/Surface Background
   /// Usage: Cards, elevated surfaces, containers

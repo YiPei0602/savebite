@@ -4,8 +4,11 @@ import 'package:provider/provider.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 
 /// Profile Screen
 ///
@@ -19,9 +22,12 @@ class ProfileScreen extends StatelessWidget {
       builder: (context, authProvider, _) {
         final user = authProvider.currentUser;
 
+        final isMerchant = user?.role == UserRole.merchant;
+
         return Scaffold(
           backgroundColor: AppColors.background,
           appBar: AppBar(
+            leading: const AppBackButton(),
             title: Text('Profile', style: AppTypography.h3),
             centerTitle: true,
             elevation: 0,
@@ -36,13 +42,174 @@ class ProfileScreen extends StatelessWidget {
                       const SizedBox(height: AppConstants.paddingL),
                       _buildImpactDashboard(user.impactData),
                       const SizedBox(height: AppConstants.paddingL),
+                      if (isMerchant) ...[
+                        _buildMerchantStoreInfoSection(context, user),
+                        const SizedBox(height: AppConstants.paddingL),
+                        _buildMerchantActionsSection(context, authProvider),
+                      ] else ...[
                       _buildMenuSection(context, authProvider),
+                      ],
                       const SizedBox(height: AppConstants.paddingXL),
                     ],
                   ),
                 ),
         );
       },
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required Widget child,
+    VoidCallback? onTap,
+  }) {
+    final card = Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
+      padding: const EdgeInsets.all(AppConstants.paddingM),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.divider),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTypography.h5.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              if (onTap != null)
+                const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+            ],
+          ),
+          const SizedBox(height: AppConstants.paddingS),
+          child,
+        ],
+      ),
+    );
+
+    if (onTap == null) return card;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+      child: card,
+    );
+  }
+
+  Widget _buildKVRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMerchantStoreInfoSection(BuildContext context, UserModel user) {
+    final merchantId = user.merchantId ?? user.id;
+    final merchantProvider = context.read<MerchantProvider>();
+
+    return StreamBuilder<MerchantModel?>(
+      stream: merchantProvider.watchMerchant(merchantId),
+      builder: (context, snapshot) {
+        final m = snapshot.data;
+        if (m == null) {
+          return _buildSectionCard(
+            title: 'Store Information',
+            onTap: () => context.push('/merchant-store-setup?onboarding=false'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your store profile is not set up yet.',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () =>
+                        context.push('/merchant-store-setup?onboarding=false'),
+                    child: const Text('Create Store Profile'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final name = m.name.trim().isNotEmpty ? m.name.trim() : 'Not set';
+        final address = m.address.trim().isNotEmpty ? m.address.trim() : 'Not set';
+        final phone =
+            m.phoneNumber.trim().isNotEmpty ? m.phoneNumber.trim() : 'Not set';
+        final desc =
+            m.description.trim().isNotEmpty ? m.description.trim() : 'Not set';
+
+        return _buildSectionCard(
+          title: 'Store Information',
+          onTap: () => context.push('/merchant-store-setup?onboarding=false'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildKVRow('Shop Name', name),
+              _buildKVRow('Address', address),
+              _buildKVRow('Phone', phone),
+              _buildKVRow('About', desc),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMerchantActionsSection(
+    BuildContext context,
+    AuthProvider authProvider,
+  ) {
+    return Column(
+      children: [
+        _buildMenuItem(
+          icon: Icons.person_outline,
+          title: 'Edit Profile',
+          onTap: () => context.push('/edit-profile'),
+        ),
+        const SizedBox(height: AppConstants.paddingM),
+        _buildLogoutButton(context, authProvider),
+      ],
     );
   }
 

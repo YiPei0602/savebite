@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
@@ -27,6 +29,11 @@ class MerchantProvider with ChangeNotifier {
 
     try {
       _merchants = await _merchantService.getAllMerchants();
+      unawaited(
+        _merchantService.syncOpenStateForMerchantIds(
+          _merchants.map((m) => m.id).toSet(),
+        ),
+      );
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -52,6 +59,30 @@ class MerchantProvider with ChangeNotifier {
     }
   }
 
+  Stream<MerchantModel?> watchMerchant(String id) {
+    return _merchantService.watchMerchant(id);
+  }
+
+  Future<bool> setOpen({
+    required String merchantId,
+    required bool isOpen,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _merchantService.setOpen(merchantId, isOpen);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Get merchants by location
   Future<void> loadMerchantsByLocation({
     required double latitude,
@@ -67,6 +98,11 @@ class MerchantProvider with ChangeNotifier {
         latitude: latitude,
         longitude: longitude,
         radiusKm: radiusKm,
+      );
+      unawaited(
+        _merchantService.syncOpenStateForMerchantIds(
+          _merchants.map((m) => m.id).toSet(),
+        ),
       );
       _isLoading = false;
       notifyListeners();
@@ -90,6 +126,11 @@ class MerchantProvider with ChangeNotifier {
 
     try {
       _merchants = await _merchantService.searchMerchants(query);
+      unawaited(
+        _merchantService.syncOpenStateForMerchantIds(
+          _merchants.map((m) => m.id).toSet(),
+        ),
+      );
       _isLoading = false;
       notifyListeners();
     } catch (e) {

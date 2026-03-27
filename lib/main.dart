@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:go_router/go_router.dart';
+import 'package:timezone/data/latest.dart' as tzdata;
+import 'core/config/stripe_publishable_key.dart';
 import 'firebase_options.dart';
 import 'app/theme/app_theme.dart';
 import 'app/router/app_router.dart';
@@ -14,22 +17,27 @@ import 'features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'features/donations/state/providers/donation_provider.dart';
 
 /// SaveBite - Food Rescue Platform
-/// 
+///
 /// Main entry point of the application.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize Firebase
+  tzdata.initializeTimeZones();
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  
-  // Set preferred orientations
+
+  Stripe.publishableKey = StripePublishableKey.value;
+  // Required on iOS for Payment Sheet (3DS, Link, redirects). Must match
+  // CFBundleURLSchemes in ios/Runner/Info.plist.
+  Stripe.urlScheme = 'savebite';
+  await Stripe.instance.applySettings();
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
+
   runApp(const SaveBiteApp());
 }
 
@@ -40,22 +48,11 @@ class SaveBiteApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        // Authentication Provider
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
-        
-        // Food Provider
         ChangeNotifierProvider(create: (_) => FoodProvider()..loadFoodItems()),
-        
-        // Cart Provider
         ChangeNotifierProvider(create: (_) => CartProvider()),
-        
-        // Order Provider
         ChangeNotifierProvider(create: (_) => OrderProvider()),
-        
-        // Merchant Provider
         ChangeNotifierProvider(create: (_) => MerchantProvider()..loadMerchants()),
-        
-        // Donation Provider
         ChangeNotifierProvider(create: (_) => DonationProvider()),
       ],
       child: const _AppShell(),
@@ -91,7 +88,6 @@ class _AppShellState extends State<_AppShell> {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       routerConfig: _router,
-      // Initial route is set in AppRouter to '/landing'
     );
   }
 }

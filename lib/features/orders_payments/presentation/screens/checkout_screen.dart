@@ -4,7 +4,34 @@ import 'package:provider/provider.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
+import 'package:savebite/features/orders_payments/domain/checkout_payment_method_key.dart';
+import 'package:savebite/features/orders_payments/domain/mock_payment_checkout_args.dart';
+import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
+import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
+
+String _normalizeHhMm24(String? raw) {
+  if (raw == null) return '';
+  final t = raw.trim();
+  if (t.isEmpty) return '';
+  final p = t.split(':');
+  if (p.length < 2) return t;
+  final h = int.tryParse(p[0]) ?? 0;
+  final min = int.tryParse(p[1]) ?? 0;
+  return '${h.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')}';
+}
+
+/// `Pickup: Today, HH:mm - HH:mm` when both times exist on [m]; otherwise `null`.
+String? _pickupTodayLine24(MerchantModel? m) {
+  final o = _normalizeHhMm24(m?.openingTime);
+  final c = _normalizeHhMm24(m?.closingTime);
+  if (o.isEmpty || c.isEmpty) return null;
+  return 'Pickup: Today, $o - $c';
+}
 
 /// Checkout Screen
 ///
@@ -30,11 +57,36 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   // Fulfillment method: true = Self-Pickup, false = Delivery
   bool _isSelfPickup = true;
 
-  // Selected payment method
-  String _selectedPaymentMethod = 'card';
+  String _selectedPaymentMethod = CheckoutPaymentMethodKey.card;
 
   // Delivery fee (only if delivery is selected)
   final double _deliveryFee = 2.00;
+
+  final TextEditingController _deliveryAddressController =
+      TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill from user's saved address if any (legacy).
+    // TODO: API in future - integrate address autocomplete (e.g. Google Places).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final addr =
+          context.read<AuthProvider>().currentUser?.address?.trim();
+      if (addr != null &&
+          addr.isNotEmpty &&
+          _deliveryAddressController.text.isEmpty) {
+        _deliveryAddressController.text = addr;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _deliveryAddressController.dispose();
+    super.dispose();
+  }
 
   // Get cart data from provider or widget
   Map<String, Map<String, dynamic>> get _cartItems {
@@ -42,14 +94,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return widget.cartItems!;
     }
     final cartProvider = Provider.of<CartProvider>(context, listen: false);
+    final merchantProvider =
+        Provider.of<MerchantProvider>(context, listen: false);
+    MerchantModel? mFor(String id) {
+      for (final m in merchantProvider.merchants) {
+        if (m.id == id) return m;
+      }
+      return null;
+    }
+
     final Map<String, Map<String, dynamic>> items = {};
     for (var item in cartProvider.items) {
       items[item.id] = {
         'id': item.id,
         'name': item.foodItem.name,
-        'merchantName': item.foodItem.merchantName,
+        'merchantName': consumerShopDisplayName(
+          merchantId: item.foodItem.merchantId,
+          merchantProfile: mFor(item.foodItem.merchantId),
+          fromFoodItem: item.foodItem.merchantName,
+        ),
         'imageUrl': item.foodItem.imageUrl,
-        'price': item.foodItem.discountedPrice,
+        'price': item.foodItem.effectiveDiscountedPrice,
         'originalPrice': item.foodItem.originalPrice,
         'quantity': item.quantity,
         'maxQuantity': item.foodItem.stock,
@@ -76,108 +141,103 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return total;
   }
 
-  void _placeOrder() {
-    final orderId =
-        'SB${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}';
+  PaymentMethod _paymentMethodFromKey(String key) {
+    switch (key) {
+      case CheckoutPaymentMethodKey.ewallet:
+        return PaymentMethod.ewallet;
+      case CheckoutPaymentMethodKey.onlineBanking:
+        return PaymentMethod.onlineBanking;
+      case CheckoutPaymentMethodKey.card:
+      default:
+        return PaymentMethod.card;
+    }
+  }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(
-          color: AppColors.primary,
-        ),
-      ),
+  void _placeOrder() {
+    final auth = context.read<AuthProvider>();
+    final userId = auth.currentUser?.id;
+    if (userId == null || userId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again to place an order.')),
+      );
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    if (cartProvider.isEmpty) return;
+
+    if (cartProvider.hasMultipleMerchants) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please checkout items from one store at a time.')),
+      );
+      return;
+    }
+
+    if (!_isSelfPickup) {
+      final addr = _deliveryAddressController.text.trim();
+      if (addr.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please enter your delivery address'),
+          ),
+        );
+        return;
+      }
+    }
+
+    final first = cartProvider.items.first;
+    final merchantId = first.foodItem.merchantId;
+    MerchantModel? merchantProfile;
+    for (final m in context.read<MerchantProvider>().merchants) {
+      if (m.id == merchantId) {
+        merchantProfile = m;
+        break;
+      }
+    }
+    final merchantName = consumerShopDisplayName(
+      merchantId: merchantId,
+      merchantProfile: merchantProfile,
+      fromFoodItem: first.foodItem.merchantName,
     );
 
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pop(context);
+    final snapshotItems = cartProvider.items
+        .map(
+          (ci) => ci.copyWith(
+            foodItem: ci.foodItem.copyWith(
+              discountedPrice: ci.foodItem.effectiveDiscountedPrice,
+              discountPercentage: ci.foodItem.effectiveDiscountPercentage,
+            ),
+          ),
+        )
+        .toList(growable: false);
 
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppConstants.radiusL),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(AppConstants.paddingL),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF5F5F5),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle,
-                  color: Color(0xFF212121),
-                  size: 60,
-                ),
-              ),
-              const SizedBox(height: AppConstants.paddingL),
-              Text(
-                'Order Placed!',
-                style: AppTypography.h3.copyWith(
-                  color: const Color(0xFF212121),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: AppConstants.paddingS),
-              Text(
-                'Your order has been successfully placed.',
-                style: AppTypography.bodyMedium.copyWith(
-                  color: const Color(0xFF616161),
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppConstants.paddingXS),
-              Text(
-                'Order #$orderId',
-                style: AppTypography.bodySmall.copyWith(
-                  color: const Color(0xFF9E9E9E),
-                ),
-              ),
-              const SizedBox(height: AppConstants.paddingL),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    context.push('/track-order', extra: {
-                      'orderId': orderId,
-                      'cartItems': _cartItems,
-                      'subtotal': _subtotal,
-                      'totalSavings': _totalSavings,
-                      'isSelfPickup': _isSelfPickup,
-                      'paymentMethod': _selectedPaymentMethod,
-                    });
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF212121),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: AppConstants.paddingM,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                    ),
-                  ),
-                  child: Text(
-                    'Track Order',
-                    style: AppTypography.buttonMedium.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    });
+    final args = MockPaymentCheckoutArgs(
+      userId: userId,
+      merchantId: merchantId,
+      merchantName: merchantName,
+      items: snapshotItems,
+      subtotal: _subtotal,
+      serviceFee: 0.0,
+      deliveryFee: _isSelfPickup ? 0.0 : _deliveryFee,
+      totalPrice: _total,
+      totalSavings: _totalSavings,
+      fulfillmentType:
+          _isSelfPickup ? FulfillmentType.pickup : FulfillmentType.delivery,
+      paymentMethod: _paymentMethodFromKey(_selectedPaymentMethod),
+      paymentMethodLabelKey: _selectedPaymentMethod,
+      isSelfPickup: _isSelfPickup,
+      cartItemsForTracking: Map<String, Map<String, dynamic>>.from(_cartItems),
+      deliveryAddress:
+          _isSelfPickup ? null : _deliveryAddressController.text.trim(),
+      pickupAddress: _isSelfPickup
+          ? (merchantProfile != null &&
+                  merchantProfile.address.trim().isNotEmpty
+              ? merchantProfile.address.trim()
+              : null)
+          : null,
+    );
+
+    context.push('/mock-payment', extra: args);
   }
 
   @override
@@ -189,16 +249,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         iconTheme: IconThemeData(color: AppColors.textPrimary),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/cart');
-            }
-          },
-        ),
+        leading: const AppBackButton(color: AppColors.textPrimary),
         title: Text(
           'Checkout',
           style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
@@ -361,176 +412,143 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _buildPickupPointInfo() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Pickup Location',
-          style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: AppConstants.paddingS),
-        Container(
-          height: 150,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE8E8E8),
-            borderRadius: BorderRadius.circular(AppConstants.radiusM),
-            border: Border.all(color: AppColors.border, width: 1),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppConstants.radiusM),
-            child: Stack(
-              children: [
-                CustomPaint(size: Size.infinite, painter: _MapPainter()),
-                Positioned(
-                  left: 60,
-                  top: 60,
-                  child: Container(
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2196F3),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: 50,
-                  top: 40,
-                  child: Icon(
-                    Icons.location_on,
-                    size: 36,
-                    color: const Color(0xFFE53935),
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 4,
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  right: 8,
-                  bottom: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.my_location,
-                      size: 20,
-                      color: Color(0xFF757575),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: AppConstants.paddingM),
-        Container(
-          padding: const EdgeInsets.all(AppConstants.paddingM),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceVariant,
-            borderRadius: BorderRadius.circular(AppConstants.radiusS),
-          ),
-          child: Row(
-            children: [
-              Icon(Icons.store, color: AppColors.primary, size: 20),
-              const SizedBox(width: AppConstants.paddingS),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'The Baker\'s Cottage',
-                      style: AppTypography.bodyMedium.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.paddingXS),
-                    Text(
-                      '123 Gurney Drive, Penang, 10250',
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: AppConstants.paddingS),
-        Row(
-          children: [
-            Icon(Icons.access_time, color: AppColors.textSecondary, size: 16),
-            const SizedBox(width: AppConstants.paddingXS),
-            Text(
-              'Pickup: Today, 6:00 PM - 8:00 PM',
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDeliveryAddressInfo() {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.paddingM),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
-        borderRadius: BorderRadius.circular(AppConstants.radiusS),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.home, color: AppColors.primary, size: 20),
-          const SizedBox(width: AppConstants.paddingS),
-          Expanded(
-            child: Column(
+    return Consumer<CartProvider>(
+      builder: (context, cart, _) {
+        if (cart.isEmpty) return const SizedBox.shrink();
+        final first = cart.items.first;
+        final merchantId = first.foodItem.merchantId;
+        final merchantProvider = context.read<MerchantProvider>();
+        MerchantModel? fromList;
+        for (final m in merchantProvider.merchants) {
+          if (m.id == merchantId) {
+            fromList = m;
+            break;
+          }
+        }
+        return StreamBuilder<MerchantModel?>(
+          stream: merchantProvider.watchMerchant(merchantId),
+          initialData: fromList,
+          builder: (context, snapshot) {
+            final m = snapshot.data;
+            final shopName = consumerShopDisplayName(
+              merchantId: merchantId,
+              merchantProfile: m,
+              fromFoodItem: first.foodItem.merchantName,
+            );
+            final address = (m?.address ?? '').trim();
+            final addressLine =
+                address.isNotEmpty ? address : 'Address not set';
+            final pickupLine = _pickupTodayLine24(m);
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Delivery Address',
+                  'Pickup Location',
                   style: AppTypography.bodyMedium.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: AppConstants.paddingXS),
-                Text(
-                  'Tower 1B, Ideal Residency Jalan Lembah, Taman Tun Sardon, 11700 Gelugor, Penang',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
+                const SizedBox(height: AppConstants.paddingS),
+                Container(
+                  padding: const EdgeInsets.all(AppConstants.paddingM),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusS),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.store, color: AppColors.primary, size: 20),
+                      const SizedBox(width: AppConstants.paddingS),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              shopName,
+                              style: AppTypography.bodyMedium.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: AppConstants.paddingXS),
+                            Text(
+                              addressLine,
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: AppConstants.paddingS),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.access_time,
+                      color: AppColors.textSecondary,
+                      size: 16,
+                    ),
+                    const SizedBox(width: AppConstants.paddingXS),
+                    Expanded(
+                      child: Text(
+                        pickupLine ?? 'Pickup hours unavailable',
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDeliveryAddressInfo() {
+    // TODO: API in future - integrate address autocomplete (e.g. Google Places).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Delivery Address',
+          style: AppTypography.bodyMedium.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppConstants.paddingS),
+        TextFormField(
+          controller: _deliveryAddressController,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: 'Enter your full street address',
+            prefixIcon: const Icon(Icons.location_on_outlined),
+            filled: true,
+            fillColor: AppColors.surfaceVariant,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              borderSide: BorderSide(color: AppColors.primary, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.edit, size: 20),
-            color: AppColors.primary,
-            onPressed: () {},
-          ),
-        ],
-      ),
+          onChanged: (_) => setState(() {}),
+        ),
+      ],
     );
   }
 
@@ -555,7 +573,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Text('Payment Method', style: AppTypography.h4),
             const SizedBox(height: AppConstants.paddingM),
             _buildPaymentOption(
-              'card',
+              CheckoutPaymentMethodKey.card,
               'Credit/Debit Card',
               Icons.credit_card,
               'Visa, Mastercard, Amex',
@@ -563,7 +581,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             const SizedBox(height: AppConstants.paddingS),
             _buildPaymentOption(
-              'ewallet',
+              CheckoutPaymentMethodKey.ewallet,
               'E-Wallet',
               Icons.account_balance_wallet,
               'Touch \'n Go, GrabPay, Boost',
@@ -571,7 +589,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             const SizedBox(height: AppConstants.paddingS),
             _buildPaymentOption(
-              'online_banking',
+              CheckoutPaymentMethodKey.onlineBanking,
               'Online Banking',
               Icons.account_balance,
               'Maybank, CIMB, Public Bank',
@@ -765,20 +783,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
+          padding: AppConstants.primaryCtaFooterBlockPadding,
           child: SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _placeOrder,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00A86B),
+                foregroundColor: AppColors.textOnPrimary,
                 padding: const EdgeInsets.symmetric(
-                  vertical: AppConstants.paddingL,
+                  vertical: AppConstants.primaryCtaVerticalPadding,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                  borderRadius: BorderRadius.circular(
+                    AppConstants.primaryCtaPillRadius,
+                  ),
                 ),
-                elevation: 4,
+                elevation: 0,
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -787,7 +808,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   const SizedBox(width: AppConstants.paddingS),
                   Text(
                     'Place Order - ${AppConstants.currencySymbol}${_total.toStringAsFixed(2)}',
-                    style: AppTypography.buttonLarge,
+                    style: AppTypography.buttonMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
               ),
@@ -798,71 +821,3 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 }
-
-/// Custom Painter for Map Background
-class _MapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bgPaint = Paint()..color = const Color(0xFFE8E8E8);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), bgPaint);
-
-    final streetPaint = Paint()
-      ..color = const Color(0xFFD0D0D0)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-
-    final mainStreetPaint = Paint()
-      ..color = const Color(0xFFC0C0C0)
-      ..strokeWidth = 5
-      ..style = PaintingStyle.stroke;
-
-    for (double y = 20; y < size.height; y += 30) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        y % 60 == 20 ? mainStreetPaint : streetPaint,
-      );
-    }
-
-    for (double x = 20; x < size.width; x += 30) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        x % 60 == 20 ? mainStreetPaint : streetPaint,
-      );
-    }
-
-    final buildingPaint = Paint()..color = const Color(0xFFF5F5F5);
-    canvas.drawRect(Rect.fromLTWH(10, 10, 35, 25), buildingPaint);
-    canvas.drawRect(Rect.fromLTWH(size.width - 60, 15, 40, 30), buildingPaint);
-    canvas.drawRect(
-      Rect.fromLTWH(size.width / 2 - 20, size.height - 50, 40, 35),
-      buildingPaint,
-    );
-
-    final roadPaint = Paint()
-      ..color = const Color(0xFFBBDEFB)
-      ..strokeWidth = 4
-      ..style = PaintingStyle.stroke;
-
-    final path = Path();
-    path.moveTo(0, size.height * 0.6);
-    path.quadraticBezierTo(
-      size.width * 0.3,
-      size.height * 0.4,
-      size.width * 0.6,
-      size.height * 0.7,
-    );
-    path.quadraticBezierTo(
-      size.width * 0.8,
-      size.height * 0.9,
-      size.width,
-      size.height * 0.8,
-    );
-    canvas.drawPath(path, roadPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-

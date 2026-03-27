@@ -1,8 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
 /// Order Model
 ///
 /// Represents a customer order.
+/// - **Payment lifecycle:** [paymentStatus] (`pending` | `paid` | `failed`).
+/// - **Fulfillment lifecycle:** [orderStatus] (`pending` → … → `completed` | `cancelled`).
 class OrderModel {
   final String id;
   final String userId;
@@ -14,9 +18,14 @@ class OrderModel {
   final double deliveryFee;
   final double totalPrice;
   final double totalSavings;
-  final OrderStatus status;
+  /// Fulfillment / kitchen workflow (pending → completed, etc.).
+  final OrderStatus orderStatus;
   final FulfillmentType fulfillmentType;
+  /// How the user chose to pay (stored as enum; wire value matches [PaymentMethod] name).
   final PaymentMethod paymentMethod;
+  final PaymentStatus paymentStatus;
+  final String currency;
+  final DateTime? paidAt;
   final String? deliveryAddress;
   final String? pickupAddress;
   final DateTime createdAt;
@@ -34,9 +43,12 @@ class OrderModel {
     required this.deliveryFee,
     required this.totalPrice,
     required this.totalSavings,
-    required this.status,
+    required this.orderStatus,
     required this.fulfillmentType,
     required this.paymentMethod,
+    required this.paymentStatus,
+    this.currency = 'myr',
+    this.paidAt,
     this.deliveryAddress,
     this.pickupAddress,
     required this.createdAt,
@@ -45,6 +57,9 @@ class OrderModel {
   });
 
   factory OrderModel.fromJson(Map<String, dynamic> json) {
+    final orderStatusRaw = json['orderStatus'] as String? ??
+        json['status'] as String? ??
+        'pending';
     return OrderModel(
       id: json['id'] as String,
       userId: json['userId'] as String,
@@ -58,26 +73,26 @@ class OrderModel {
       deliveryFee: (json['deliveryFee'] as num).toDouble(),
       totalPrice: (json['totalPrice'] as num).toDouble(),
       totalSavings: (json['totalSavings'] as num).toDouble(),
-      status: OrderStatus.values.firstWhere(
-        (e) => e.toString() == 'OrderStatus.${json['status']}',
+      orderStatus: OrderStatus.values.firstWhere(
+        (e) => e.toString() == 'OrderStatus.$orderStatusRaw',
         orElse: () => OrderStatus.pending,
       ),
       fulfillmentType: FulfillmentType.values.firstWhere(
         (e) => e.toString() == 'FulfillmentType.${json['fulfillmentType']}',
         orElse: () => FulfillmentType.pickup,
       ),
-      paymentMethod: PaymentMethod.values.firstWhere(
-        (e) => e.toString() == 'PaymentMethod.${json['paymentMethod']}',
-        orElse: () => PaymentMethod.cash,
+      paymentMethod: PaymentMethod.fromWire(
+        json['paymentMethod']?.toString(),
       ),
+      paymentStatus:
+          PaymentStatus.fromWire(json['paymentStatus'] as String?),
+      currency: (json['currency'] as String?) ?? 'myr',
+      paidAt: dateTimeFromFirestore(json['paidAt']),
       deliveryAddress: json['deliveryAddress'] as String?,
       pickupAddress: json['pickupAddress'] as String?,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt:
-          json['updatedAt'] != null ? DateTime.parse(json['updatedAt'] as String) : null,
-      completedAt: json['completedAt'] != null
-          ? DateTime.parse(json['completedAt'] as String)
-          : null,
+      createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
+      updatedAt: dateTimeFromFirestore(json['updatedAt']),
+      completedAt: dateTimeFromFirestore(json['completedAt']),
     );
   }
 
@@ -93,14 +108,17 @@ class OrderModel {
       'deliveryFee': deliveryFee,
       'totalPrice': totalPrice,
       'totalSavings': totalSavings,
-      'status': status.toString().split('.').last,
+      'orderStatus': orderStatus.toString().split('.').last,
       'fulfillmentType': fulfillmentType.toString().split('.').last,
       'paymentMethod': paymentMethod.toString().split('.').last,
+      'paymentStatus': paymentStatus.toString().split('.').last,
+      'currency': currency,
+      'paidAt': timestampFromDateTime(paidAt),
       'deliveryAddress': deliveryAddress,
       'pickupAddress': pickupAddress,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
-      'completedAt': completedAt?.toIso8601String(),
+      'createdAt': Timestamp.fromDate(createdAt),
+      'updatedAt': timestampFromDateTime(updatedAt),
+      'completedAt': timestampFromDateTime(completedAt),
     };
   }
 
@@ -115,9 +133,12 @@ class OrderModel {
     double? deliveryFee,
     double? totalPrice,
     double? totalSavings,
-    OrderStatus? status,
+    OrderStatus? orderStatus,
     FulfillmentType? fulfillmentType,
     PaymentMethod? paymentMethod,
+    PaymentStatus? paymentStatus,
+    String? currency,
+    DateTime? paidAt,
     String? deliveryAddress,
     String? pickupAddress,
     DateTime? createdAt,
@@ -135,9 +156,12 @@ class OrderModel {
       deliveryFee: deliveryFee ?? this.deliveryFee,
       totalPrice: totalPrice ?? this.totalPrice,
       totalSavings: totalSavings ?? this.totalSavings,
-      status: status ?? this.status,
+      orderStatus: orderStatus ?? this.orderStatus,
       fulfillmentType: fulfillmentType ?? this.fulfillmentType,
       paymentMethod: paymentMethod ?? this.paymentMethod,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      currency: currency ?? this.currency,
+      paidAt: paidAt ?? this.paidAt,
       deliveryAddress: deliveryAddress ?? this.deliveryAddress,
       pickupAddress: pickupAddress ?? this.pickupAddress,
       createdAt: createdAt ?? this.createdAt,
@@ -149,7 +173,7 @@ class OrderModel {
   int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
 }
 
-/// Order Status Enum
+/// Fulfillment / order lifecycle (merchant workflow).
 enum OrderStatus {
   pending,
   confirmed,
@@ -160,17 +184,60 @@ enum OrderStatus {
   cancelled,
 }
 
-/// Fulfillment Type Enum
 enum FulfillmentType {
   pickup,
   delivery,
 }
 
-/// Payment Method Enum
+/// Stored in Firestore as camelCase segment: `card`, `ewallet`, `onlineBanking`, `cash`.
+/// [fromWire] also accepts legacy snake_case (`online_banking`).
 enum PaymentMethod {
   cash,
   card,
   ewallet,
-  onlineBanking,
+  onlineBanking;
+
+  static PaymentMethod fromWire(String? raw) {
+    if (raw == null || raw.isEmpty) return PaymentMethod.cash;
+    switch (raw) {
+      case 'cash':
+        return PaymentMethod.cash;
+      case 'card':
+        return PaymentMethod.card;
+      case 'ewallet':
+        return PaymentMethod.ewallet;
+      case 'onlineBanking':
+      case 'online_banking':
+        return PaymentMethod.onlineBanking;
+      default:
+        return PaymentMethod.values.firstWhere(
+          (e) => e.toString() == 'PaymentMethod.$raw',
+          orElse: () => PaymentMethod.cash,
+        );
+    }
+  }
 }
 
+/// Payment state (Stripe / checkout). Separate from [OrderStatus].
+enum PaymentStatus {
+  pending,
+  paid,
+  failed;
+
+  static PaymentStatus fromWire(String? raw) {
+    switch (raw) {
+      case 'pending':
+      case 'awaitingPayment':
+        return PaymentStatus.pending;
+      case 'paid':
+      case 'mockPaid':
+        return PaymentStatus.paid;
+      case 'failed':
+      case 'canceled':
+      case 'cancelled':
+        return PaymentStatus.failed;
+      default:
+        return PaymentStatus.paid;
+    }
+  }
+}

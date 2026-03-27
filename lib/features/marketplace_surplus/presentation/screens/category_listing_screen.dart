@@ -7,6 +7,11 @@ import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/utils/surplus_sellability_utils.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 class CategoryListingScreen extends StatefulWidget {
   const CategoryListingScreen({super.key, required this.category, this.items});
@@ -24,6 +29,10 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<FoodProvider>().loadFoodItems();
+      final mp = context.read<MerchantProvider>();
+      if (mp.merchants.isEmpty && !mp.isLoading) {
+        mp.loadMerchants();
+      }
     });
   }
 
@@ -148,10 +157,7 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: AppColors.surface,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => context.go('/home'),
-        ),
+        leading: const AppBackButton(color: AppColors.textPrimary),
         title: Text(_getCategoryTitle(), style: AppTypography.h4),
         centerTitle: true,
         actions: [
@@ -202,32 +208,42 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
               !_shouldHideFilters(widget.category))
             _buildDietaryFilters(),
           Expanded(
-            child: Consumer<FoodProvider>(
-              builder: (context, foodProvider, child) {
+            child: Consumer2<FoodProvider, MerchantProvider>(
+              builder: (context, foodProvider, merchantProvider, child) {
                 List<FoodItemModel> filteredItems;
+
+                final now = DateTime.now();
+                MerchantModel? mFor(String id) {
+                  for (final m in merchantProvider.merchants) {
+                    if (m.id == id) return m;
+                  }
+                  return null;
+                }
+
+                final pool = foodProvider.displayedFoodItems.toList();
 
                 if (_isDietaryTag(widget.category)) {
                   final tag = _getDietaryTagFromString(widget.category);
                   if (tag != null) {
-                    filteredItems = foodProvider.allFoodItems
+                    filteredItems = pool
                         .where((item) => item.dietaryTags.contains(tag))
                         .toList();
                   } else {
-                    filteredItems = foodProvider.allFoodItems;
+                    filteredItems = pool;
                   }
                 } else if (_isBakeryCategory(widget.category)) {
-                  filteredItems = foodProvider.allFoodItems
+                  filteredItems = pool
                       .where((item) =>
                           item.effectiveCategories.contains(FoodCategory.bakery))
                       .toList();
                 } else {
                   final categoryEnum = _getCategoryFromString(widget.category);
                   filteredItems = categoryEnum != null
-                      ? foodProvider.allFoodItems
+                      ? pool
                           .where((item) =>
                               item.effectiveCategories.contains(categoryEnum))
                           .toList()
-                      : foodProvider.allFoodItems;
+                      : pool;
                 }
 
                 if (foodProvider.selectedDietaryTags.isNotEmpty &&
@@ -249,8 +265,12 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                 return ListView.builder(
                   padding: const EdgeInsets.all(AppConstants.paddingM),
                   itemCount: filteredItems.length,
-                  itemBuilder: (context, index) =>
-                      _buildItemCard(context, filteredItems[index]),
+                  itemBuilder: (context, index) => _buildItemCard(
+                    context,
+                    filteredItems[index],
+                    merchantProfile: mFor(filteredItems[index].merchantId),
+                    now: now,
+                  ),
                 );
               },
             ),
@@ -348,8 +368,20 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
     );
   }
 
-  Widget _buildItemCard(BuildContext context, FoodItemModel item) {
-    return Card(
+  Widget _buildItemCard(
+    BuildContext context,
+    FoodItemModel item, {
+    MerchantModel? merchantProfile,
+    required DateTime now,
+  }) {
+    final unavailable = isConsumerListingUnavailableForDisplay(item, now);
+    final shopName = consumerShopDisplayName(
+      merchantId: item.merchantId,
+      merchantProfile: merchantProfile,
+      fromFoodItem: item.merchantName,
+    );
+
+    final card = Card(
       margin: const EdgeInsets.only(bottom: AppConstants.paddingM),
       clipBehavior: Clip.antiAlias,
       elevation: 2,
@@ -361,7 +393,7 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildCardImage(item.imageUrl),
+            _buildCardImage(item.imageUrl, unavailable: unavailable),
             Padding(
               padding: const EdgeInsets.all(AppConstants.paddingM),
               child: Column(
@@ -370,9 +402,11 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                   Text(item.name, style: AppTypography.h5),
                   const SizedBox(height: AppConstants.paddingXS),
                   Text(
-                    item.merchantName,
+                    shopName,
                     style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
+                      color: unavailable
+                          ? AppColors.textTertiary
+                          : AppColors.textSecondary,
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingS),
@@ -392,7 +426,25 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                         ),
                       ),
                       const Spacer(),
-                      if (item.isClosingSoon)
+                      if (unavailable)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.paddingS,
+                            vertical: AppConstants.paddingXS,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.textTertiary.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(AppConstants.radiusS),
+                          ),
+                          child: Text(
+                            'Unavailable',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        )
+                      else if (item.isClosingSoon)
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: AppConstants.paddingS,
@@ -432,9 +484,11 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                       ),
                       const SizedBox(width: AppConstants.paddingS),
                       Text(
-                        'RM ${item.discountedPrice.toStringAsFixed(2)}',
+                        'RM ${item.effectiveDiscountedPrice.toStringAsFixed(2)}',
                         style: AppTypography.h5.copyWith(
-                          color: AppColors.accent,
+                          color: unavailable
+                              ? AppColors.textTertiary
+                              : AppColors.accent,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -449,7 +503,7 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                           borderRadius: BorderRadius.circular(AppConstants.radiusS),
                         ),
                         child: Text(
-                          '-${item.discountPercentage}%',
+                          '-${item.effectiveDiscountPercentage}%',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textOnAccent,
                             fontWeight: FontWeight.bold,
@@ -462,9 +516,21 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => _addToCart(item),
+                      onPressed: unavailable
+                          ? () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'This listing is unavailable.',
+                                  ),
+                                ),
+                              );
+                            }
+                          : () => _addToCart(item),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: unavailable
+                            ? AppColors.textTertiary
+                            : AppColors.primary,
                         padding: const EdgeInsets.symmetric(
                           vertical: AppConstants.paddingM,
                         ),
@@ -472,10 +538,15 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                           borderRadius: BorderRadius.circular(AppConstants.radiusM),
                         ),
                       ),
-                      icon: const Icon(Icons.add_shopping_cart,
-                          size: 20, color: Colors.white),
+                      icon: Icon(
+                        Icons.add_shopping_cart,
+                        size: 20,
+                        color: unavailable
+                            ? Colors.white.withOpacity(0.7)
+                            : Colors.white,
+                      ),
                       label: Text(
-                        'Add to Cart',
+                        unavailable ? 'Unavailable' : 'Add to Cart',
                         style: AppTypography.buttonMedium.copyWith(
                           color: Colors.white,
                         ),
@@ -489,6 +560,9 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
         ),
       ),
     );
+
+    if (unavailable) return Opacity(opacity: 0.72, child: card);
+    return card;
   }
 
   void _addToCart(FoodItemModel item) {
@@ -507,45 +581,73 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
     );
   }
 
-  Widget _buildCardImage(String imageUrl) {
-    return Container(
+  Widget _buildCardImage(String imageUrl, {bool unavailable = false}) {
+    Widget imageBody;
+    if (imageUrl.isEmpty) {
+      imageBody = Container(
+        color: AppColors.primaryLight.withOpacity(0.3),
+        child: Center(
+          child: Icon(
+            Icons.fastfood,
+            size: 60,
+            color: AppColors.primary.withOpacity(0.5),
+          ),
+        ),
+      );
+    } else if (imageUrl.startsWith('assets/')) {
+      imageBody = Image.asset(
+        imageUrl,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+      );
+    } else {
+      imageBody = Image.network(
+        imageUrl,
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          color: AppColors.primaryLight.withOpacity(0.3),
+          child: Center(
+            child: Icon(
+              Icons.fastfood,
+              size: 60,
+              color: AppColors.primary.withOpacity(0.5),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SizedBox(
       height: 180,
       width: double.infinity,
-      color: AppColors.surfaceVariant,
-      child: (imageUrl.isEmpty)
-          ? Container(
-              color: AppColors.primaryLight.withOpacity(0.3),
-              child: Center(
-                child: Icon(
-                  Icons.fastfood,
-                  size: 60,
-                  color: AppColors.primary.withOpacity(0.5),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          imageBody,
+          if (unavailable)
+            Container(
+              color: Colors.black.withOpacity(0.45),
+              alignment: Alignment.center,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.92),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-              ),
-            )
-          : imageUrl.startsWith('assets/')
-              ? Image.asset(
-                  imageUrl,
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                )
-              : Image.network(
-                  imageUrl,
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: AppColors.primaryLight.withOpacity(0.3),
-                    child: Center(
-                      child: Icon(
-                        Icons.fastfood,
-                        size: 60,
-                        color: AppColors.primary.withOpacity(0.5),
-                      ),
-                    ),
+                child: Text(
+                  'Unavailable',
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textSecondary,
                   ),
                 ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

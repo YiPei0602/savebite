@@ -9,13 +9,19 @@ import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
+import 'package:savebite/shared/utils/merchant_schedule_utils.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Add Surplus Item Screen
 ///
 /// UI-only form placeholder. Publishing surplus requires backend integration.
 class AddSurplusScreen extends StatefulWidget {
-  const AddSurplusScreen({super.key});
+  final FoodItemModel? initialItem;
+
+  const AddSurplusScreen({super.key, this.initialItem});
 
   @override
   State<AddSurplusScreen> createState() => _AddSurplusScreenState();
@@ -23,7 +29,6 @@ class AddSurplusScreen extends StatefulWidget {
 
 class _AddSurplusScreenState extends State<AddSurplusScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _shopNameController = TextEditingController();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _originalPriceController = TextEditingController();
@@ -33,10 +38,29 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
   Uint8List? _imageBytes;
   String? _imageFileName;
   String? _imageContentType;
+  String? _existingImageUrl;
+  MerchantModel? _merchantSnapshot;
 
   final Set<_ListingTag> _selectedTags = <_ListingTag>{};
-  double _discountPercentage = 50.0;
+  double _minDiscount = 20.0;
+  double _maxDiscount = 70.0;
   bool _isLoading = false;
+
+  /// Always derived from store profile (same instant as store closing for this session).
+  DateTime get _effectiveClosingTime {
+    final fromStore = _closingTimeFromStore(_merchantSnapshot);
+    if (fromStore != null) return fromStore;
+    return widget.initialItem?.closingTime ??
+        DateTime.now().add(const Duration(hours: 6));
+  }
+
+  /// Derives item closing time from store's operating schedule (Store Profile).
+  /// Uses the **next closing instant** for the current session (including overnight
+  /// e.g. Tue 11:00 → Wed 01:00).
+  DateTime? _closingTimeFromStore(MerchantModel? m) {
+    if (m == null) return null;
+    return closingInstantForCurrentOpenSessionMalaysia(m);
+  }
 
   static const List<_ListingTag> _tagOptions = <_ListingTag>[
     _ListingTag.foodCategory(FoodCategory.mysteryBag, 'Mystery'),
@@ -49,8 +73,41 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+
+    final item = widget.initialItem;
+    if (item == null) return;
+
+    _nameController.text = item.name;
+    _descriptionController.text = item.description;
+    _originalPriceController.text = item.originalPrice.toStringAsFixed(2);
+    _quantityController.text = item.stock.toString();
+    _existingImageUrl = item.imageUrl;
+
+    final range = item.discountRange;
+    if (range != null) {
+      _minDiscount = range.minPercent.toDouble();
+      _maxDiscount = range.maxPercent.toDouble();
+    } else {
+      _minDiscount = item.discountPercentage.toDouble();
+      _maxDiscount = item.discountPercentage.toDouble();
+    }
+
+    for (final opt in _tagOptions) {
+      final foodCat = opt.foodCategory;
+      final dietary = opt.dietaryTag;
+      if (foodCat != null && item.effectiveCategories.contains(foodCat)) {
+        _selectedTags.add(opt);
+      }
+      if (dietary != null && item.dietaryTags.contains(dietary)) {
+        _selectedTags.add(opt);
+      }
+    }
+  }
+
+  @override
   void dispose() {
-    _shopNameController.dispose();
     _nameController.dispose();
     _descriptionController.dispose();
     _originalPriceController.dispose();
@@ -58,14 +115,51 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
     super.dispose();
   }
 
+  int get _computedDiscountPercent {
+    final max = _maxDiscount.round().clamp(0, 100);
+    final min = _minDiscount.round().clamp(0, max);
+    final span = max - min;
+    if (span == 0) return min;
+
+    final minutesLeft = _effectiveClosingTime.difference(DateTime.now()).inMinutes;
+    if (minutesLeft <= 0) return max;
+
+    final double t;
+    if (minutesLeft > 240) {
+      t = 0.0;
+    } else if (minutesLeft > 120) {
+      t = 0.2;
+    } else if (minutesLeft > 60) {
+      t = 0.4;
+    } else if (minutesLeft > 30) {
+      t = 0.7;
+    } else {
+      t = 1.0;
+    }
+    return (min + (span * t)).round().clamp(0, 100);
+  }
+
   double get _discountedPrice {
     final original = double.tryParse(_originalPriceController.text) ?? 0;
-    return original * (1 - _discountPercentage / 100);
+    return original * (1 - _computedDiscountPercent / 100);
   }
 
   Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_imageBytes == null) {
+    final isEdit = widget.initialItem != null;
+
+    // UX guard: store profile must be complete before any backend call.
+    final merchant = _merchantSnapshot;
+    final storeComplete = merchant != null &&
+        merchant.name.trim().isNotEmpty &&
+        merchant.address.trim().isNotEmpty &&
+        merchant.phoneNumber.trim().isNotEmpty;
+    if (!storeComplete) {
+      // Button is disabled in UI, but keep a safety guard.
+      return;
+    }
+
+    if (!isEdit && _imageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select an item photo')),
       );
@@ -87,15 +181,25 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
 
       final merchantId = user?.merchantId ?? user?.id;
       if (merchantId == null || merchantId.isEmpty || user == null) {
-        throw Exception('Merchant session missing. Please log in again.');
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in again to continue.')),
+        );
+        return;
       }
-      final merchantName = _shopNameController.text.trim().isNotEmpty
-          ? _shopNameController.text.trim()
-          : (user.name.isNotEmpty ? user.name : 'Your Store');
+
+      final merchantName = merchant.name.trim();
 
       final originalPrice = double.parse(_originalPriceController.text);
       final stock = int.parse(_quantityController.text);
-      final discountInt = _discountPercentage.round().clamp(0, 100);
+      final minInt = _minDiscount.round().clamp(0, 100);
+      final maxInt = _maxDiscount.round().clamp(0, 100);
+      final discountRange = DiscountRange(
+        minPercent: minInt <= maxInt ? minInt : maxInt,
+        maxPercent: maxInt,
+      );
+      final discountInt = _computedDiscountPercent;
       final discountedPrice = originalPrice * (1 - discountInt / 100);
 
       final selectedFoodCategories = _selectedTags
@@ -115,7 +219,9 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
           selectedDietary.isEmpty ? const [DietaryTag.none] : selectedDietary;
 
       final item = FoodItemModel(
-        id: 'draft-${DateTime.now().millisecondsSinceEpoch}',
+        id: isEdit
+            ? widget.initialItem!.id
+            : 'draft-${DateTime.now().millisecondsSinceEpoch}',
         name: _nameController.text.trim(),
         merchantId: merchantId,
         merchantName: merchantName,
@@ -123,36 +229,45 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
         originalPrice: originalPrice,
         discountedPrice: discountedPrice,
         discountPercentage: discountInt,
+        discountRange: discountRange,
         stock: stock,
         category: primaryCategory,
         categories: selectedFoodCategories,
         dietaryTags: dietaryTags,
-        closingTime: DateTime.now().add(const Duration(hours: 6)),
-        imageUrl: '',
-        createdAt: DateTime.now(),
+        closingTime: _effectiveClosingTime,
+        imageUrl: isEdit ? (_existingImageUrl ?? '') : '',
+        listingStatus:
+            isEdit ? widget.initialItem!.listingStatus : ListingStatus.active,
+        createdAt: isEdit ? widget.initialItem!.createdAt : DateTime.now(),
+        updatedAt: isEdit ? DateTime.now() : null,
       );
 
-      final ok = await foodProvider.createFoodItem(
-        item,
-        imageBytes: _imageBytes,
-        imageFileName: _imageFileName,
-        imageContentType: _imageContentType,
-      );
+      final ok = isEdit
+          ? await foodProvider.updateFoodItem(
+              item,
+              imageBytes: _imageBytes,
+              imageFileName: _imageFileName,
+              imageContentType: _imageContentType,
+            )
+          : await foodProvider.createFoodItem(
+              item,
+              imageBytes: _imageBytes,
+              imageFileName: _imageFileName,
+              imageContentType: _imageContentType,
+            );
       if (!mounted) return;
 
       setState(() => _isLoading = false);
 
       if (!ok) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(foodProvider.errorMessage ?? 'Unable to publish item'),
-          ),
+          const SnackBar(content: Text('Unable to publish item. Please try again.')),
         );
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Listing published')),
+        SnackBar(content: Text(isEdit ? 'Listing updated' : 'Listing published')),
       );
 
       if (context.canPop()) {
@@ -163,150 +278,213 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
+      debugPrint('[AddSurplusScreen] publish failed: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.toString().isEmpty
-                ? 'Unable to publish item. Please try again.'
-                : e.toString(),
-          ),
-        ),
+        const SnackBar(content: Text('Unable to publish item. Please try again.')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final merchantId = auth.currentUser?.merchantId ?? auth.currentUser?.id;
+    final merchantProvider = context.read<MerchantProvider>();
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/merchant-dashboard');
-            }
-          },
+        leading: const AppBackButton(),
+        title: Text(
+          widget.initialItem == null ? 'Add Surplus Item' : 'Edit Listing',
+          style: AppTypography.h4,
         ),
-        title: Text('Add Surplus Item', style: AppTypography.h4),
         centerTitle: true,
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
-          children: [
-            _buildImageUploadSection(),
-            const SizedBox(height: 24),
-            _buildFloatingField(
-              controller: _shopNameController,
-              label: 'Shop Name',
-              hint: 'e.g., Marcus Bakery',
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) return 'Required';
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildFloatingField(
-              controller: _nameController,
-              label: 'Item Name',
-              hint: 'e.g., Surplus Pastry Box',
-              validator: (value) {
-                if (value == null || value.isEmpty) return 'Please enter item name';
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildFloatingField(
-              controller: _descriptionController,
-              label: 'Description',
-              hint: 'Describe what\'s included...',
-              maxLines: 3,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter description';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            _buildCategorySection(),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildFloatingField(
-                    controller: _originalPriceController,
-                    label: 'Original Price (RM)',
-                    hint: '0.00',
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return 'Required';
-                      if (double.tryParse(value) == null) return 'Invalid';
-                      return null;
-                    },
-                    onChanged: (value) => setState(() {}),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildFloatingField(
-                    controller: _quantityController,
-                    label: 'Quantity',
-                    hint: '0',
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) return 'Required';
-                      if (int.tryParse(value) == null) return 'Invalid';
-                      return null;
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            _buildDiscountSection(),
-            const SizedBox(height: 24),
-            _buildPriceSummaryCard(),
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _handleSubmit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                  ),
-                  elevation: 0,
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text('Add Item', style: AppTypography.buttonLarge),
+      body: (merchantId == null || merchantId.isEmpty)
+          ? Center(
+              child: Text(
+                'Merchant session missing. Please log in again.',
+                style: AppTypography.bodyMedium,
+                textAlign: TextAlign.center,
               ),
+            )
+          : StreamBuilder<MerchantModel?>(
+              stream: merchantProvider.watchMerchant(merchantId),
+              builder: (context, snapshot) {
+                _merchantSnapshot = snapshot.data;
+                final merchant = snapshot.data;
+                final storeComplete = merchant != null &&
+                    merchant.name.trim().isNotEmpty &&
+                    merchant.address.trim().isNotEmpty &&
+                    merchant.phoneNumber.trim().isNotEmpty;
+
+                return Form(
+                  key: _formKey,
+                  child: ListView(
+                    padding: const EdgeInsets.all(AppConstants.paddingL),
+                    children: [
+                      _buildImageUploadSection(),
+                      const SizedBox(height: 24),
+                      _buildFloatingField(
+                        controller: _nameController,
+                        label: 'Item Name',
+                        hint: 'e.g., Surplus Pastry Box',
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter item name';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFloatingField(
+                        controller: _descriptionController,
+                        label: 'Description',
+                        hint: 'Describe what\'s included...',
+                        maxLines: 3,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter description';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCategorySection(),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildFloatingField(
+                              controller: _originalPriceController,
+                              label: 'Original Price (RM)',
+                              hint: '0.00',
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Required';
+                                if (double.tryParse(value) == null) return 'Invalid';
+                                return null;
+                              },
+                              onChanged: (value) => setState(() {}),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildFloatingField(
+                              controller: _quantityController,
+                              label: 'Quantity',
+                              hint: '0',
+                              keyboardType: TextInputType.number,
+                              validator: (value) {
+                                if (value == null || value.isEmpty) return 'Required';
+                                if (int.tryParse(value) == null) return 'Invalid';
+                                return null;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      _buildDiscountSection(),
+                      const SizedBox(height: 24),
+                      _buildPriceSummaryCard(),
+                      const SizedBox(height: 20),
+
+                      if (!storeComplete) ...[
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                            border: Border.all(
+                              color: AppColors.primary.withOpacity(0.18),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Complete your store profile to start selling',
+                                style: AppTypography.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  onPressed: _isLoading
+                                      ? null
+                                      : () => context.go('/merchant-profile'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppColors.primary,
+                                    side: const BorderSide(color: AppColors.primary),
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        AppConstants.radiusM,
+                                      ),
+                                    ),
+                                  ),
+                                  child: const Text('Go to Profile'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: (_isLoading || !storeComplete)
+                              ? null
+                              : _handleSubmit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  widget.initialItem == null
+                                      ? 'Add Item'
+                                      : 'Save Changes',
+                                  style: AppTypography.buttonLarge,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                );
+              },
             ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
     );
   }
 
   Widget _buildImageUploadSection() {
+    final existingUrl = _existingImageUrl;
+    final hasExistingImage =
+        _imageBytes == null && existingUrl != null && existingUrl.isNotEmpty;
+
     return InkWell(
       onTap: _isLoading ? null : _pickImage,
       borderRadius: BorderRadius.circular(AppConstants.radiusM),
@@ -321,7 +499,7 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
             width: 2,
           ),
         ),
-        child: _imageBytes == null
+        child: (_imageBytes == null && !hasExistingImage)
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -351,10 +529,27 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                    child: Image.memory(
-                      _imageBytes!,
-                      fit: BoxFit.cover,
-                    ),
+                    child: hasExistingImage
+                        ? (existingUrl.startsWith('assets/')
+                            ? Image.asset(existingUrl, fit: BoxFit.cover)
+                            : Image.network(
+                                existingUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: AppColors.surfaceVariant,
+                                    child: const Icon(
+                                      Icons.fastfood,
+                                      color: AppColors.textTertiary,
+                                      size: 40,
+                                    ),
+                                  );
+                                },
+                              ))
+                        : Image.memory(
+                            _imageBytes!,
+                            fit: BoxFit.cover,
+                          ),
                   ),
                   Positioned(
                     right: 10,
@@ -514,7 +709,7 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '${_discountPercentage.round()}% OFF',
+                '${_minDiscount.round()}% – ${_maxDiscount.round()}%  (now ${_computedDiscountPercent}%)',
                 style: AppTypography.bodyMedium.copyWith(
                   color: AppColors.accent,
                   fontWeight: FontWeight.bold,
@@ -524,39 +719,23 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        SliderTheme(
-          data: SliderThemeData(
-            activeTrackColor: AppColors.accent,
-            inactiveTrackColor: AppColors.accent.withOpacity(0.2),
-            thumbColor: AppColors.accent,
-            overlayColor: AppColors.accent.withOpacity(0.2),
-            trackHeight: 6,
+        RangeSlider(
+          values: RangeValues(_minDiscount, _maxDiscount),
+          min: 10,
+          max: 90,
+          divisions: 16,
+          labels: RangeLabels(
+            '${_minDiscount.round()}%',
+            '${_maxDiscount.round()}%',
           ),
-          child: Slider(
-            value: _discountPercentage,
-            min: 10,
-            max: 90,
-            divisions: 16,
-            label: '${_discountPercentage.round()}%',
-            onChanged: (value) => setState(() => _discountPercentage = value),
-          ),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '10%',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            Text(
-              '90%',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
+          onChanged: (values) {
+            setState(() {
+              _minDiscount = values.start;
+              _maxDiscount = values.end;
+            });
+          },
+          activeColor: AppColors.accent,
+          inactiveColor: AppColors.accent.withOpacity(0.2),
         ),
       ],
     );

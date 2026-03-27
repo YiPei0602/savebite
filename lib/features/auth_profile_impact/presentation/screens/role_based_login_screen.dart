@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Role-Based Login Screen
 ///
@@ -27,19 +28,6 @@ class RoleBasedLoginScreen extends StatelessWidget {
             child: Stack(
               children: [
                 const ColoredBox(color: Color(0xFFE8F5EC)),
-                SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () => context.go('/landing'),
-                          icon: const Icon(Icons.arrow_back_ios_new),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 Center(
                   child: FractionallySizedBox(
                     widthFactor: 1.2,
@@ -47,6 +35,19 @@ class RoleBasedLoginScreen extends StatelessWidget {
                     child: Image.asset(
                       'assets/images/welcome.png',
                       fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: AppBackButton(fallbackRoute: '/landing'),
                     ),
                   ),
                 ),

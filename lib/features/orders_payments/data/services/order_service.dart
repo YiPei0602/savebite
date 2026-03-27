@@ -1,23 +1,30 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
+import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
 /// Order Service
 ///
-/// Handles order operations.
-/// Placeholder implementation (in-memory only).
-/// Will be replaced with Firebase Firestore.
+/// Firestore-backed orders. Persist only after successful payment; stock is
+/// decremented in the same transaction as the order document when [paymentStatus]
+/// is [PaymentStatus.paid].
 class OrderService {
-  // Singleton pattern
   static final OrderService _instance = OrderService._internal();
   factory OrderService() => _instance;
   OrderService._internal();
 
-  // In-memory orders storage (starts empty; no hardcoded mock orders)
-  final List<OrderModel> _orders = [];
+  static const String _collection = 'orders';
+  static const String _foodCollection = 'food_items';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Create new order
-  ///
-  /// TODO: Replace with Firebase Firestore
+  static String _paymentStatusString(PaymentStatus s) =>
+      s.toString().split('.').last;
+
+  DateTime? _closingTimeFromFoodData(Map<String, dynamic> data) {
+    return dateTimeFromFirestore(data['closingTime']);
+  }
+
+  /// Persists order and decrements stock only when [paymentStatus] is [paid].
   Future<OrderModel> createOrder({
     required String userId,
     required String merchantId,
@@ -30,13 +37,25 @@ class OrderService {
     required double totalSavings,
     required FulfillmentType fulfillmentType,
     required PaymentMethod paymentMethod,
+    required PaymentStatus paymentStatus,
     String? deliveryAddress,
     String? pickupAddress,
   }) async {
-    await Future.delayed(const Duration(seconds: 1));
+    if (paymentStatus == PaymentStatus.failed) {
+      throw ArgumentError(
+        'Cannot create an order with failed payment status.',
+      );
+    }
+    if (paymentStatus != PaymentStatus.paid) {
+      throw UnsupportedError(
+        'Only paid orders are persisted after checkout; got $paymentStatus',
+      );
+    }
 
+    final docRef = _firestore.collection(_collection).doc();
+    final now = DateTime.now();
     final order = OrderModel(
-      id: 'SB${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+      id: docRef.id,
       userId: userId,
       merchantId: merchantId,
       merchantName: merchantName,
@@ -46,87 +65,168 @@ class OrderService {
       deliveryFee: deliveryFee,
       totalPrice: totalPrice,
       totalSavings: totalSavings,
-      status: OrderStatus.pending,
+      orderStatus: OrderStatus.pending,
       fulfillmentType: fulfillmentType,
       paymentMethod: paymentMethod,
+      paymentStatus: paymentStatus,
+      currency: 'myr',
+      paidAt: now,
       deliveryAddress: deliveryAddress,
       pickupAddress: pickupAddress,
-      createdAt: DateTime.now(),
+      createdAt: now,
     );
 
-    _orders.insert(0, order);
+    final checkoutNow = DateTime.now();
+
+    await _firestore.runTransaction((tx) async {
+      for (final item in items) {
+        final foodId = item.foodItem.id;
+        final qty = item.quantity;
+        final foodRef = _firestore.collection(_foodCollection).doc(foodId);
+        final foodSnap = await tx.get(foodRef);
+        final foodData = foodSnap.data();
+        if (!foodSnap.exists || foodData == null) {
+          throw Exception('An item in your cart is no longer available.');
+        }
+        final statusStr = (foodData['status'] as String?) ?? 'active';
+        if (statusStr != 'active') {
+          throw Exception('${item.foodItem.name} is no longer available.');
+        }
+        final closing = _closingTimeFromFoodData(foodData);
+        if (closing == null || !checkoutNow.isBefore(closing)) {
+          throw Exception('Pickup window for ${item.foodItem.name} has ended.');
+        }
+        final currentStock = (foodData['stock'] as num?)?.toInt() ?? 0;
+        if (currentStock < qty) {
+          throw Exception('Not enough stock for ${item.foodItem.name}.');
+        }
+        tx.update(foodRef, {
+          'stock': currentStock - qty,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      final payload = <String, dynamic>{
+        ...order.toJson(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': null,
+        'completedAt': null,
+      };
+      payload['paidAt'] = FieldValue.serverTimestamp();
+      tx.set(docRef, payload);
+    });
+
     return order;
   }
 
-  /// Get order by ID
-  ///
-  /// TODO: Replace with Firebase Firestore
   Future<OrderModel?> getOrderById(String orderId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    try {
-      return _orders.firstWhere((order) => order.id == orderId);
-    } catch (_) {
-      return null;
-    }
+    final doc = await _firestore.collection(_collection).doc(orderId).get();
+    final data = doc.data();
+    if (!doc.exists || data == null) return null;
+    return _fromFirestore(data, doc.id);
   }
 
-  /// Get orders by user
-  ///
-  /// TODO: Replace with Firebase Firestore query
   Future<List<OrderModel>> getOrdersByUser(String userId) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return _orders.where((order) => order.userId == userId).toList();
+    final snap = await _firestore
+        .collection(_collection)
+        .where('userId', isEqualTo: userId)
+        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
+        .orderBy('createdAt', descending: true)
+        .limit(100)
+        .get();
+    return snap.docs.map((d) => _fromFirestore(d.data(), d.id)).toList();
   }
 
-  /// Get orders by merchant
-  ///
-  /// TODO: Replace with Firebase Firestore query
   Future<List<OrderModel>> getOrdersByMerchant(String merchantId) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return _orders.where((order) => order.merchantId == merchantId).toList();
+    final snap = await _firestore
+        .collection(_collection)
+        .where('merchantId', isEqualTo: merchantId)
+        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
+        .orderBy('createdAt', descending: true)
+        .limit(100)
+        .get();
+    return snap.docs.map((d) => _fromFirestore(d.data(), d.id)).toList();
   }
 
-  /// Get active orders (not completed or cancelled)
-  ///
-  /// TODO: Replace with Firebase Firestore query
+  Stream<List<OrderModel>> watchOrdersByMerchant(
+    String merchantId, {
+    int limit = 100,
+  }) {
+    return _firestore
+        .collection(_collection)
+        .where('merchantId', isEqualTo: merchantId)
+        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map((snap) =>
+            snap.docs.map((d) => _fromFirestore(d.data(), d.id)).toList());
+  }
+
   Future<List<OrderModel>> getActiveOrders(String userId) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return _orders.where((order) {
-      return order.userId == userId &&
-          order.status != OrderStatus.completed &&
-          order.status != OrderStatus.cancelled;
-    }).toList();
+    final all = await getOrdersByUser(userId);
+    return all
+        .where((o) =>
+            o.orderStatus != OrderStatus.completed &&
+            o.orderStatus != OrderStatus.cancelled)
+        .toList(growable: false);
   }
 
-  /// Update order status
-  ///
-  /// TODO: Replace with Firebase Firestore
   Future<OrderModel> updateOrderStatus(
     String orderId,
     OrderStatus newStatus,
   ) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    final orderIndex = _orders.indexWhere((order) => order.id == orderId);
-    if (orderIndex == -1) {
-      throw Exception('Order not found');
+    final existing = await getOrderById(orderId);
+    if (existing == null) throw Exception('Order not found');
+    if (existing.paymentStatus != PaymentStatus.paid) {
+      throw Exception('Order payment is not complete.');
     }
 
-    final updatedOrder = _orders[orderIndex].copyWith(
-      status: newStatus,
-      updatedAt: DateTime.now(),
-      completedAt: newStatus == OrderStatus.completed ? DateTime.now() : null,
-    );
-
-    _orders[orderIndex] = updatedOrder;
-    return updatedOrder;
+    final docRef = _firestore.collection(_collection).doc(orderId);
+    final update = <String, dynamic>{
+      'orderStatus': newStatus.toString().split('.').last,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (newStatus == OrderStatus.completed) {
+      update['completedAt'] = FieldValue.serverTimestamp();
+    }
+    if (newStatus == OrderStatus.cancelled) {
+      update['completedAt'] = null;
+    }
+    await docRef.set(update, SetOptions(merge: true));
+    final updated = await getOrderById(orderId);
+    if (updated == null) throw Exception('Order not found');
+    return updated;
   }
 
-  /// Cancel order
-  ///
-  /// TODO: Replace with Firebase Firestore
   Future<OrderModel> cancelOrder(String orderId) async {
     return updateOrderStatus(orderId, OrderStatus.cancelled);
   }
-}
 
+  OrderModel _fromFirestore(Map<String, dynamic> data, String id) {
+    final normalized = Map<String, dynamic>.from(data);
+    normalized['id'] = id;
+
+    // Keep Timestamp (or legacy string); [OrderModel.fromJson] parses via [dateTimeFromFirestore].
+    normalized['userId'] = normalized['userId'] ?? '';
+    normalized['merchantId'] = normalized['merchantId'] ?? '';
+    normalized['merchantName'] = normalized['merchantName'] ?? '';
+    normalized['subtotal'] = normalized['subtotal'] ?? 0;
+    normalized['serviceFee'] = normalized['serviceFee'] ?? 0;
+    normalized['deliveryFee'] = normalized['deliveryFee'] ?? 0;
+    normalized['totalPrice'] = normalized['totalPrice'] ?? 0;
+    normalized['totalSavings'] = normalized['totalSavings'] ?? 0;
+    normalized['orderStatus'] = normalized['orderStatus'] ??
+        normalized['status'] ??
+        'pending';
+    normalized['fulfillmentType'] = normalized['fulfillmentType'] ?? 'pickup';
+    normalized['paymentMethod'] = normalized['paymentMethod'] ?? 'cash';
+    normalized['paymentStatus'] = normalized['paymentStatus'] ?? 'paid';
+    normalized['currency'] = normalized['currency'] ?? 'myr';
+    normalized['items'] = normalized['items'] ?? <dynamic>[];
+    normalized['createdAt'] = normalized['createdAt'] ??
+        Timestamp.fromDate(DateTime.now());
+
+    return OrderModel.fromJson(normalized);
+  }
+}

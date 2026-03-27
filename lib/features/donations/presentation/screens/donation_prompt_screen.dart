@@ -5,6 +5,7 @@ import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/features/donations/state/providers/donation_provider.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Donation Prompt Screen
 ///
@@ -79,7 +80,6 @@ class _DonationPromptScreenState extends State<DonationPromptScreen> {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(AppConstants.paddingL),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [Colors.green.shade600, Colors.green.shade400],
@@ -87,33 +87,55 @@ class _DonationPromptScreenState extends State<DonationPromptScreen> {
           end: Alignment.bottomRight,
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.volunteer_activism,
-              color: Colors.white,
-              size: 32,
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: AppBackButton(
+                color: Colors.white,
+                fallbackRoute: '/merchant-dashboard',
+              ),
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.paddingL,
+              0,
+              AppConstants.paddingL,
+              AppConstants.paddingL,
+            ),
+            child: Row(
               children: [
-                Text(
-                  'Donate Unsold Food',
-                  style: AppTypography.h3.copyWith(color: Colors.white),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.volunteer_activism,
+                    color: Colors.white,
+                    size: 32,
+                  ),
                 ),
-                Text(
-                  'Help reduce food waste',
-                  style: AppTypography.bodyMedium.copyWith(
-                    color: Colors.white.withOpacity(0.9),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Donate Unsold Food',
+                        style: AppTypography.h3.copyWith(color: Colors.white),
+                      ),
+                      Text(
+                        'Help reduce food waste',
+                        style: AppTypography.bodyMedium.copyWith(
+                          color: Colors.white.withOpacity(0.9),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

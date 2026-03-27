@@ -6,10 +6,17 @@ import 'package:provider/provider.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
+import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
+import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
+import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
-import 'package:savebite/shared/utils/price_utils.dart';
+import 'package:savebite/shared/utils/malaysia_store_time_utils.dart';
+import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/utils/merchant_schedule_utils.dart';
+import 'package:savebite/shared/utils/surplus_sellability_utils.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Merchant Details Screen
 ///
@@ -20,7 +27,6 @@ class MerchantDetailsScreen extends StatefulWidget {
   final String? merchantName;
   final String? imageUrl;
   final double? rating;
-  final int pickupHoursRemaining;
 
   const MerchantDetailsScreen({
     super.key,
@@ -28,7 +34,6 @@ class MerchantDetailsScreen extends StatefulWidget {
     this.merchantName,
     this.imageUrl,
     this.rating,
-    this.pickupHoursRemaining = 2,
   });
 
   @override
@@ -36,90 +41,144 @@ class MerchantDetailsScreen extends StatefulWidget {
 }
 
 class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
-  // Countdown timer
-  late Timer _timer;
-  late Duration _remainingTime;
+  Timer? _clock;
 
   @override
   void initState() {
     super.initState();
-    _remainingTime = Duration(hours: widget.pickupHoursRemaining);
-    _startCountdown();
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncStoreAndListings());
   }
 
   @override
   void dispose() {
-    _timer.cancel();
+    _clock?.cancel();
     super.dispose();
   }
 
-  void _startCountdown() {
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingTime.inSeconds > 0) {
-        setState(() {
-          _remainingTime = _remainingTime - const Duration(seconds: 1);
-        });
-      } else {
-        timer.cancel();
-      }
-    });
+  Future<void> _syncStoreAndListings() async {
+    if (!mounted) return;
+    final food = context.read<FoodProvider>();
+    final id = widget.merchantId;
+    await MerchantService().syncOpenStateFromClosingTime(id);
+    await food.applyListingLifecycleForMerchant(id);
+    await food.loadFoodItems(showLoadingIndicator: false);
   }
 
-  String _formatCountdown() {
-    final hours = _remainingTime.inHours;
-    final minutes = _remainingTime.inMinutes.remainder(60);
-    final seconds = _remainingTime.inSeconds.remainder(60);
+  /// Compact merchant strip: rating/reviews (if any), closing countdown (if any).
+  Widget _buildMerchantCompact(
+    MerchantModel? merchant,
+    List<FoodItemModel> merchantItems, {
+    required bool storeOpen,
+  }) {
+    final dur = durationUntilClosingMalaysia(merchant);
+    final rating = widget.rating ??
+        (merchantItems.isNotEmpty ? merchantItems.first.rating : null) ??
+        (merchant != null && merchant.rating > 0 ? merchant.rating : null);
+    final reviewCount = merchant?.reviewCount ?? 0;
+    final showRating = rating != null && rating > 0;
+    final showReviews = reviewCount > 0;
 
-    if (hours > 0) {
-      return '$hours hours ${minutes}m';
-    } else if (minutes > 0) {
-      return '$minutes minutes ${seconds}s';
-    } else {
-      return '$seconds seconds';
+    if (!showRating && !showReviews && dur == null) {
+      return const SizedBox.shrink();
     }
-  }
 
-  void _addToCart(CartProvider cartProvider, FoodItemModel item) {
-    try {
-      cartProvider.addItem(item);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${item.name} added to cart'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    }
-  }
-
-  void _removeFromCart(CartProvider cartProvider, FoodItemModel item) {
-    final cartItem = cartProvider.getCartItem(item.id);
-    if (cartItem != null && cartItem.quantity > 1) {
-      cartProvider.decrementQuantity(cartItem.id);
-    } else if (cartItem != null) {
-      cartProvider.removeItem(cartItem.id);
-    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.paddingM,
+        0,
+        AppConstants.paddingM,
+        AppConstants.paddingS,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showRating || showReviews)
+            Row(
+              children: [
+                if (showRating) ...[
+                  ...List.generate(5, (index) {
+                    return Icon(
+                      index < rating.floor()
+                          ? Icons.star
+                          : (index < rating
+                              ? Icons.star_half
+                              : Icons.star_border),
+                      color: AppColors.warning,
+                      size: 20,
+                    );
+                  }),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$rating',
+                    style: AppTypography.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (showReviews) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    '($reviewCount reviews)',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          if (dur != null) ...[
+            if (showRating || showReviews) const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.schedule,
+                  size: 20,
+                  color: storeOpen ? AppColors.primary : AppColors.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        dur > Duration.zero
+                            ? MalaysiaStoreTimeUtils.formatHhMmSs(dur)
+                            : 'Closed',
+                        style: AppTypography.h5.copyWith(
+                          color: storeOpen
+                              ? AppColors.primary
+                              : AppColors.textSecondary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        dur > Duration.zero
+                            ? 'Time until closing (Malaysia)'
+                            : 'Past store closing time (Malaysia)',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<FoodProvider, CartProvider>(
-      builder: (context, foodProvider, cartProvider, _) {
-        final merchantItems = foodProvider.allFoodItems
-            .where((item) => item.merchantId == widget.merchantId)
-            .where((item) => item.isAvailable && item.stock > 0)
-            .toList();
-
+    return Consumer3<FoodProvider, CartProvider, MerchantProvider>(
+      builder: (context, foodProvider, cartProvider, merchantProvider, _) {
         final merchantCartItems =
             cartProvider.itemsByMerchant[widget.merchantId] ?? [];
         final totalItemsFromMerchant = merchantCartItems.fold<int>(
@@ -131,319 +190,164 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
           (sum, item) => sum + item.subtotal,
         );
 
-        return Scaffold(
-          backgroundColor: AppColors.background,
-          body: Stack(
-            children: [
-              // Main Content
-              CustomScrollView(
-                slivers: [
-                  // Header with Cover Image
-                  _buildHeader(),
+        return StreamBuilder<MerchantModel?>(
+          stream: merchantProvider.watchMerchant(widget.merchantId),
+          builder: (context, snapshot) {
+            final merchant = snapshot.data;
+            final now = DateTime.now();
+            final storeOpen = merchant == null
+                ? true
+                : (hasValidOperatingSchedule(merchant)
+                    ? isMerchantOpenNowMalaysia(merchant)
+                    : merchant.isOpen);
+            final merchantItems = foodProvider.allFoodItems
+                .where((item) => item.merchantId == widget.merchantId)
+                .where(
+                  (item) =>
+                      !isListingPastStoreSessionMalaysia(merchant) &&
+                      item.isConsumerVisibleNow() &&
+                      item.stock > 0,
+                )
+                .toList()
+              ..sort((a, b) {
+                final ua = isConsumerListingUnavailableForDisplay(
+                  a,
+                  now,
+                  merchantStoreOpen: storeOpen,
+                )
+                    ? 1
+                    : 0;
+                final ub = isConsumerListingUnavailableForDisplay(
+                  b,
+                  now,
+                  merchantStoreOpen: storeOpen,
+                )
+                    ? 1
+                    : 0;
+                if (ua != ub) return ua.compareTo(ub);
+                return b.createdAt.compareTo(a.createdAt);
+              });
 
-                  // Merchant Info
-                  _buildMerchantInfo(merchantItems),
-
-                  // Countdown Timer
-                  _buildCountdownTimer(),
-
-                  // Surplus Menu Section
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.all(AppConstants.paddingM),
-                      child: Text(
-                        'Surplus Menu',
-                        style: AppTypography.h4,
-                      ),
-                    ),
-                  ),
-
-                  // Surplus Items List
-                  if (foodProvider.isLoading)
-                    const SliverFillRemaining(
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (merchantItems.isEmpty)
-                    SliverFillRemaining(
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.inventory_2_outlined,
-                              size: 64,
-                              color: AppColors.textTertiary,
-                            ),
-                            const SizedBox(height: AppConstants.paddingM),
-                            Text(
-                              'No surplus items available',
-                              style: AppTypography.h5.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
+            return Scaffold(
+              backgroundColor: AppColors.background,
+              body: Stack(
+                children: [
+                  // Main Content
+                  CustomScrollView(
+                    slivers: [
+                      SliverAppBar(
+                        pinned: true,
+                        backgroundColor: AppColors.background,
+                        elevation: 0,
+                        leading: const AppBackButton(color: AppColors.textPrimary),
+                        title: Text(
+                          consumerShopDisplayName(
+                            merchantId: widget.merchantId,
+                            merchantProfile: merchant,
+                            fromFoodItem: widget.merchantName ??
+                                (merchantItems.isNotEmpty
+                                    ? merchantItems.first.merchantName
+                                    : null),
+                          ),
+                          style: AppTypography.h5.copyWith(
+                            color: AppColors.textPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    )
-                  else
-                    _buildSurplusItemsList(merchantItems, cartProvider),
+                      SliverToBoxAdapter(
+                        child: _buildMerchantCompact(
+                          merchant,
+                          merchantItems,
+                          storeOpen: storeOpen,
+                        ),
+                      ),
 
-                  // Bottom padding for floating cart banner
-                  SliverToBoxAdapter(
-                    child:
-                        SizedBox(height: totalItemsFromMerchant > 0 ? 100 : 20),
+                      // Surplus Menu Section
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppConstants.paddingM),
+                          child: Text(
+                            'Surplus Menu',
+                            style: AppTypography.h4,
+                          ),
+                        ),
+                      ),
+
+                      // Surplus Items List
+                      if (foodProvider.isLoading)
+                        const SliverFillRemaining(
+                          child: Center(child: CircularProgressIndicator()),
+                        )
+                      else if (merchantItems.isEmpty)
+                        SliverFillRemaining(
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 64,
+                                  color: AppColors.textTertiary,
+                                ),
+                                const SizedBox(height: AppConstants.paddingM),
+                                Text(
+                                  'No surplus items available',
+                                  style: AppTypography.h5.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        _buildSurplusItemsList(
+                          merchantItems,
+                          cartProvider,
+                          merchantStoreOpen: storeOpen,
+                        ),
+
+                      // Bottom padding for floating cart banner
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: totalItemsFromMerchant > 0 ? 100 : 20,
+                        ),
+                      ),
+                    ],
                   ),
+
+                  // Floating Cart Banner
+                  if (totalItemsFromMerchant > 0)
+                    _buildFloatingCartBanner(
+                      totalItems: totalItemsFromMerchant,
+                      totalPrice: totalPriceFromMerchant,
+                    ),
                 ],
               ),
-
-              // Floating Cart Banner
-              if (totalItemsFromMerchant > 0)
-                _buildFloatingCartBanner(
-                  totalItems: totalItemsFromMerchant,
-                  totalPrice: totalPriceFromMerchant,
-                ),
-            ],
-          ),
+            );
+          },
         );
       },
-    );
-  }
-
-  /// Header with Cover Image and 'Save Me' Badge
-  Widget _buildHeader() {
-    return SliverAppBar(
-      expandedHeight: 250,
-      pinned: true,
-      backgroundColor: AppColors.primary,
-      leading: IconButton(
-        icon: Container(
-          padding: const EdgeInsets.all(AppConstants.paddingS),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.9),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.arrow_back,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        onPressed: () {
-          if (context.canPop()) {
-            context.pop();
-          } else {
-            context.go('/home');
-          }
-        },
-      ),
-      flexibleSpace: FlexibleSpaceBar(
-        background: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Cover Image
-            Image.network(
-              widget.imageUrl ??
-                  'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800',
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: AppColors.primaryLight.withOpacity(0.3),
-                  child: const Center(
-                    child: Icon(
-                      Icons.restaurant,
-                      size: 80,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            // Gradient Overlay
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.7),
-                  ],
-                ),
-              ),
-            ),
-
-            // 'Save Me' Badge Overlay
-            Positioned(
-              top: 60,
-              right: AppConstants.paddingM,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppConstants.paddingM,
-                  vertical: AppConstants.paddingS,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusL),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.favorite,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                    const SizedBox(width: AppConstants.paddingXS),
-                    Text(
-                      'Save Me',
-                      style: AppTypography.buttonMedium.copyWith(
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Merchant Info: Name and Rating
-  Widget _buildMerchantInfo(List<FoodItemModel> merchantItems) {
-    final merchantName = widget.merchantName ??
-        (merchantItems.isNotEmpty
-            ? merchantItems.first.merchantName
-            : 'Merchant ${widget.merchantId}');
-    final rating = widget.rating ??
-        (merchantItems.isNotEmpty ? (merchantItems.first.rating ?? 4.5) : 4.5);
-
-    return SliverToBoxAdapter(
-      child: Container(
-        padding: const EdgeInsets.all(AppConstants.paddingL),
-        color: AppColors.surface,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              merchantName,
-              style: AppTypography.h2,
-            ),
-            const SizedBox(height: AppConstants.paddingS),
-            Row(
-              children: [
-                ...List.generate(5, (index) {
-                  return Icon(
-                    index < rating.floor()
-                        ? Icons.star
-                        : (index < rating
-                            ? Icons.star_half
-                            : Icons.star_border),
-                    color: AppColors.warning,
-                    size: 20,
-                  );
-                }),
-                const SizedBox(width: AppConstants.paddingS),
-                Text(
-                  '$rating',
-                  style: AppTypography.bodyMedium.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: AppConstants.paddingXS),
-                Text(
-                  '(120 reviews)',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Countdown Timer with Urgency
-  Widget _buildCountdownTimer() {
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.all(AppConstants.paddingM),
-        padding: const EdgeInsets.all(AppConstants.paddingM),
-        decoration: BoxDecoration(
-          color: AppColors.error.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(AppConstants.radiusM),
-          border: Border.all(
-            color: AppColors.error.withOpacity(0.3),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(AppConstants.paddingS),
-              decoration: BoxDecoration(
-                color: AppColors.error.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.access_time,
-                color: AppColors.error,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: AppConstants.paddingM),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pickup closes in',
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.error,
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.paddingXS),
-                  Text(
-                    _formatCountdown(),
-                    style: AppTypography.h4.copyWith(
-                      color: AppColors.error,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(
-              Icons.warning_amber_rounded,
-              color: AppColors.error,
-              size: 28,
-            ),
-          ],
-        ),
-      ),
     );
   }
 
   /// Surplus Items List
   Widget _buildSurplusItemsList(
     List<FoodItemModel> items,
-    CartProvider cartProvider,
-  ) {
+    CartProvider cartProvider, {
+    required bool merchantStoreOpen,
+  }) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           final item = items[index];
-          return _buildSurplusItemCard(item, cartProvider);
+          return _buildSurplusItemCard(
+            item,
+            cartProvider,
+            merchantStoreOpen: merchantStoreOpen,
+          );
         },
         childCount: items.length,
       ),
@@ -451,39 +355,52 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
   }
 
   /// Surplus Item Card (Horizontal Layout)
-  Widget _buildSurplusItemCard(FoodItemModel item, CartProvider cartProvider) {
+  Widget _buildSurplusItemCard(
+    FoodItemModel item,
+    CartProvider cartProvider, {
+    required bool merchantStoreOpen,
+  }) {
+    final now = DateTime.now();
     final quantityInCart = cartProvider.getItemQuantity(item.id);
-    final dynamicPrice = PriceUtils.computeDiscountedPrice(
-      originalPrice: item.originalPrice,
-      discountPercent: item.discountRange != null
-          ? PriceUtils.computeDynamicDiscount(
-              minPercent: item.discountRange!.minPercent,
-              maxPercent: item.discountRange!.maxPercent,
-              closingTime: item.closingTime,
-            )
-          : item.discountPercentage,
+    final dynamicPrice = item.effectiveDiscountedPrice;
+    final unavailable = isConsumerListingUnavailableForDisplay(
+      item,
+      now,
+      merchantStoreOpen: merchantStoreOpen,
     );
+    final sellable =
+        isSurplusSellableToConsumer(item, now) && merchantStoreOpen;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(
+    final card = Padding(
+      padding: const EdgeInsets.symmetric(
         horizontal: AppConstants.paddingM,
         vertical: AppConstants.paddingS,
       ),
-      decoration: BoxDecoration(
+      child: Material(
         color: AppColors.surface,
+        elevation: 2,
+        shadowColor: AppColors.shadow.withOpacity(0.4),
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+          onTap: unavailable
+              ? null
+              : sellable
+                  ? () => context.push(
+                        '/merchant/${widget.merchantId}/item/${item.id}',
+                        extra: item,
+                      )
+                  : () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('This listing is unavailable.'),
+                        ),
+                      );
+                    },
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             SizedBox(
               width: 100,
               child: ClipRRect(
@@ -491,19 +408,41 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
                   topLeft: Radius.circular(AppConstants.radiusM),
                   bottomLeft: Radius.circular(AppConstants.radiusM),
                 ),
-                child: Image.network(
-                  item.imageUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: AppColors.surfaceVariant,
-                      child: const Icon(
-                        Icons.fastfood,
-                        color: AppColors.textTertiary,
-                        size: 40,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.network(
+                      item.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: AppColors.surfaceVariant,
+                          child: const Icon(
+                            Icons.fastfood,
+                            color: AppColors.textTertiary,
+                            size: 40,
+                          ),
+                        );
+                      },
+                    ),
+                    if (unavailable)
+                      Container(
+                        color: Colors.black.withOpacity(0.45),
+                        alignment: Alignment.center,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Text(
+                            'Unavailable',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.caption.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
                       ),
-                    );
-                  },
+                  ],
                 ),
               ),
             ),
@@ -584,95 +523,47 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
                 ),
               ),
             ),
-            Container(
-              padding: const EdgeInsets.all(AppConstants.paddingM),
-              child: Center(
-                child: quantityInCart == 0
-                    ? _buildAddButton(item, cartProvider)
-                    : _buildQuantityControls(item, cartProvider, quantityInCart),
-              ),
+                Padding(
+                  padding: const EdgeInsets.all(AppConstants.paddingM),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (quantityInCart > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$quantityInCart',
+                            style: AppTypography.bodyMedium.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      if (quantityInCart > 0) const SizedBox(height: 8),
+                      const Icon(
+                        Icons.chevron_right,
+                        color: AppColors.textTertiary,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
-  }
 
-  /// Add Button (Primary Green)
-  Widget _buildAddButton(FoodItemModel item, CartProvider cartProvider) {
-    return ElevatedButton(
-      onPressed: () => _addToCart(cartProvider, item),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.textOnPrimary,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppConstants.paddingL,
-          vertical: AppConstants.paddingM,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        ),
-        elevation: 2,
-      ),
-      child: Text(
-        'Add',
-        style: AppTypography.buttonMedium,
-      ),
-    );
-  }
-
-  /// Quantity Controls (+ and -)
-  Widget _buildQuantityControls(
-    FoodItemModel item,
-    CartProvider cartProvider,
-    int quantity,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        border: Border.all(
-          color: AppColors.primary,
-          width: 1,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.remove, size: 18),
-            color: AppColors.primary,
-            onPressed: () => _removeFromCart(cartProvider, item),
-            padding: const EdgeInsets.all(AppConstants.paddingS),
-            constraints: const BoxConstraints(
-              minWidth: 32,
-              minHeight: 32,
-            ),
-          ),
-          Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: AppConstants.paddingS),
-            child: Text(
-              '$quantity',
-              style: AppTypography.bodyMedium.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add, size: 18),
-            color: AppColors.primary,
-            onPressed: () => _addToCart(cartProvider, item),
-            padding: const EdgeInsets.all(AppConstants.paddingS),
-            constraints: const BoxConstraints(
-              minWidth: 32,
-              minHeight: 32,
-            ),
-          ),
-        ],
-      ),
-    );
+    if (unavailable) return Opacity(opacity: 0.72, child: card);
+    return card;
   }
 
   /// Floating Cart Banner at Bottom
@@ -787,4 +678,3 @@ class _MerchantDetailsScreenState extends State<MerchantDetailsScreen> {
     );
   }
 }
-

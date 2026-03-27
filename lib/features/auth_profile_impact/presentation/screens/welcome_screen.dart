@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:savebite/app/theme/app_colors.dart';
 import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
+import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Welcome Screen
 ///
@@ -58,19 +59,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             child: Stack(
               children: [
                 ColoredBox(color: topColor),
-                SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_back_ios_new),
-                          onPressed: () => context.go('/role-based-login'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 Center(
                   child: FractionallySizedBox(
                     widthFactor: 1.2,
@@ -78,6 +66,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     child: Image.asset(
                       roleImage,
                       fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  child: SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: AppBackButton(fallbackRoute: '/role-based-login'),
                     ),
                   ),
                 ),

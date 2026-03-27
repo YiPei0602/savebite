@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'dart:async';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../marketplace_surplus/domain/models/merchant_model.dart';
+import '../../marketplace_surplus/state/providers/merchant_provider.dart';
 import '../../orders_payments/state/providers/order_provider.dart';
 import '../../orders_payments/domain/models/order_model.dart';
+import '../../../shared/utils/merchant_display_name_utils.dart';
+import '../../../shared/widgets/app_back_button.dart';
 
 /// Order Tracking Screen
-/// 
-/// Live tracking for active orders with pickup/delivery status.
-/// Shows map view with user and merchant locations.
+///
+/// Loads order once from Firestore via [OrderProvider.getOrderById].
+/// Displays [OrderStatus] and addresses from the order document (no simulated progress).
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
   final String? merchantName;
@@ -33,107 +35,76 @@ class OrderTrackingScreen extends StatefulWidget {
 }
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
-  // Order status
-  String _currentStatus = 'preparing'; // preparing, ready, completed, cancelled
-  
-  // Timer for status updates (simulated)
-  Timer? _statusTimer;
-  int _preparationProgress = 0;
-
-  // Estimated pickup time
-  final String _estimatedTime = '6:30 PM';
-
-  // Get order data from provider or widget
-  String get _merchantName {
-    if (widget.merchantName != null) {
-      return widget.merchantName!;
-    }
-    // Try to get from OrderProvider
-    final orderProvider = Provider.of<OrderProvider>(context, listen: false);
-    final order = orderProvider.orders.firstWhere(
-      (o) => o.id == widget.orderId,
-      orElse: () => orderProvider.activeOrders.firstWhere(
-        (o) => o.id == widget.orderId,
-        orElse: () => throw Exception('Order not found'),
-      ),
-    );
-    return order.merchantName;
-  }
-
-  String get _merchantAddress {
-    if (widget.merchantAddress != null) {
-      return widget.merchantAddress!;
-    }
-    // Default address if not provided
-    return '123 Merchant Street, Kuala Lumpur';
-  }
-
-  bool get _isPickup {
-    if (widget.isPickup != null) {
-      return widget.isPickup!;
-    }
-    // Try to get from OrderProvider
-    try {
-      final orderProvider = Provider.of<OrderProvider>(context, listen: false);
-      final order = orderProvider.orders.firstWhere(
-        (o) => o.id == widget.orderId,
-        orElse: () => orderProvider.activeOrders.firstWhere(
-          (o) => o.id == widget.orderId,
-          orElse: () => throw Exception('Order not found'),
-        ),
-      );
-      return order.fulfillmentType == FulfillmentType.pickup;
-    } catch (e) {
-      return true; // Default to pickup
-    }
-  }
-
-  double get _totalAmount {
-    if (widget.totalAmount != null) {
-      return widget.totalAmount!;
-    }
-    // Try to get from OrderProvider
-    try {
-      final orderProvider = Provider.of<OrderProvider>(context, listen: false);
-      final order = orderProvider.orders.firstWhere(
-        (o) => o.id == widget.orderId,
-        orElse: () => orderProvider.activeOrders.firstWhere(
-          (o) => o.id == widget.orderId,
-          orElse: () => throw Exception('Order not found'),
-        ),
-      );
-      return order.totalPrice;
-    } catch (e) {
-      return 0.0; // Default amount
-    }
-  }
+  OrderModel? _order;
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _startStatusSimulation();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadOrder());
   }
 
-  @override
-  void dispose() {
-    _statusTimer?.cancel();
-    super.dispose();
-  }
-
-  void _startStatusSimulation() {
-    // Simulate order preparation progress
-    _statusTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (_preparationProgress < 100) {
-        setState(() {
-          _preparationProgress += 20;
-          if (_preparationProgress >= 100) {
-            _currentStatus = 'ready';
-          }
-        });
-      } else {
-        timer.cancel();
-      }
+  Future<void> _loadOrder() async {
+    final orderProvider = context.read<OrderProvider>();
+    final o = await orderProvider.getOrderById(widget.orderId);
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _order = o;
+      _error = o == null ? 'Order not found' : null;
     });
+  }
+
+  String _resolveMerchantName() {
+    final order = _order;
+    if (order == null) return widget.merchantName ?? 'Store';
+    try {
+      final mp = context.read<MerchantProvider>();
+      MerchantModel? m;
+      for (final x in mp.merchants) {
+        if (x.id == order.merchantId) {
+          m = x;
+          break;
+        }
+      }
+      return consumerShopDisplayName(
+        merchantId: order.merchantId,
+        merchantProfile: m,
+        fromFoodItem: order.merchantName,
+      );
+    } catch (_) {
+      return order.merchantName;
+    }
+  }
+
+  String _resolveAddress() {
+    final order = _order;
+    if (order == null) {
+      return widget.merchantAddress ?? '';
+    }
+    if (order.fulfillmentType == FulfillmentType.delivery) {
+      return order.deliveryAddress?.trim().isNotEmpty == true
+          ? order.deliveryAddress!.trim()
+          : '';
+    }
+    return order.pickupAddress?.trim().isNotEmpty == true
+        ? order.pickupAddress!.trim()
+        : '';
+  }
+
+  bool _resolveIsPickup() {
+    final order = _order;
+    if (order != null) {
+      return order.fulfillmentType == FulfillmentType.pickup;
+    }
+    return widget.isPickup ?? true;
+  }
+
+  double _resolveTotal() {
+    final order = _order;
+    if (order != null) return order.totalPrice;
+    return widget.totalAmount ?? 0.0;
   }
 
   void _contactMerchant() {
@@ -146,7 +117,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _merchantName,
+              _resolveMerchantName(),
               style: AppTypography.bodyMedium.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -202,8 +173,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  void _cancelOrder() {
-    showDialog(
+  Future<void> _cancelOrder() async {
+    if (_order == null) return;
+    await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Cancel Order?', style: AppTypography.h4),
@@ -217,19 +189,30 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             child: Text('Keep Order', style: AppTypography.bodyMedium),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() => _currentStatus = 'cancelled');
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final orderProvider = context.read<OrderProvider>();
               Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Order cancelled'),
-                  backgroundColor: AppColors.error,
-                ),
-              );
-              // Navigate back after a delay
-              Future.delayed(const Duration(seconds: 2), () {
-                if (mounted) Navigator.pop(context);
-              });
+              final ok = await orderProvider.cancelOrder(widget.orderId);
+              if (!mounted) return;
+              if (ok) {
+                await _loadOrder();
+                if (!mounted) return;
+                messenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('Order cancelled'),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              } else {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      orderProvider.errorMessage ?? 'Could not cancel order',
+                    ),
+                  ),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
@@ -243,40 +226,56 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final appBar = AppBar(
+      title: Text('Order Tracking', style: AppTypography.h3),
       backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: Text('Order Tracking', style: AppTypography.h3),
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/order-history');
-            }
-          },
-        ),
-        actions: [
+      elevation: 0,
+      leading: const AppBackButton(color: AppColors.textPrimary),
+      actions: [
+        if (!_loading && _error == null && _order != null)
           IconButton(
             icon: const Icon(Icons.info_outline, color: AppColors.textPrimary),
-            onPressed: () {
-              _showOrderDetails();
-            },
+            onPressed: _showOrderDetails,
           ),
-        ],
-      ),
+      ],
+    );
+
+    if (_loading) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: appBar,
+        body: const Center(
+          child: CircularProgressIndicator(color: AppColors.primary),
+        ),
+      );
+    }
+
+    if (_error != null || _order == null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: appBar,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppConstants.paddingL),
+            child: Text(
+              _error ?? 'Unable to load order',
+              textAlign: TextAlign.center,
+              style: AppTypography.bodyMedium,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: appBar,
       body: Column(
         children: [
-          // Top Half: Map View
           Expanded(
             flex: 3,
             child: _buildMapView(),
           ),
-
-          // Bottom Sheet: Status and Actions
           _buildBottomSheet(),
         ],
       ),
@@ -314,7 +313,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             right: 80,
             child: _buildLocationPin(
               icon: Icons.store,
-              label: _merchantName,
+              label: _resolveMerchantName(),
               color: AppColors.primary,
               isUser: false,
             ),
@@ -524,43 +523,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  /// Status Indicator
+  /// Status from Firestore [OrderModel.orderStatus] (Pending / Completed / Cancelled display).
   Widget _buildStatusIndicator() {
-    String statusText;
-    String statusDescription;
-    Color statusColor;
-    IconData statusIcon;
+    final s = _order!.orderStatus;
+    final String statusText;
+    final String statusDescription;
+    final Color statusColor;
+    final IconData statusIcon;
 
-    switch (_currentStatus) {
-      case 'preparing':
-        statusText = 'Preparing Your Order';
-        statusDescription = 'Estimated ready time: $_estimatedTime';
-        statusColor = AppColors.warning;
-        statusIcon = Icons.restaurant;
-        break;
-      case 'ready':
-        statusText = 'Ready for Pickup';
-        statusDescription = 'Your order is ready! Please collect by $_estimatedTime';
-        statusColor = AppColors.success;
-        statusIcon = Icons.check_circle;
-        break;
-      case 'completed':
-        statusText = 'Order Completed';
-        statusDescription = 'Thank you for saving food!';
-        statusColor = AppColors.success;
-        statusIcon = Icons.done_all;
-        break;
-      case 'cancelled':
-        statusText = 'Order Cancelled';
-        statusDescription = 'This order has been cancelled';
-        statusColor = AppColors.error;
-        statusIcon = Icons.cancel;
-        break;
-      default:
-        statusText = 'Processing';
-        statusDescription = '';
-        statusColor = AppColors.textSecondary;
-        statusIcon = Icons.hourglass_empty;
+    if (s == OrderStatus.completed) {
+      statusText = 'Completed';
+      statusDescription = 'Thank you for your order.';
+      statusColor = AppColors.success;
+      statusIcon = Icons.done_all;
+    } else if (s == OrderStatus.cancelled) {
+      statusText = 'Cancelled';
+      statusDescription = 'This order has been cancelled.';
+      statusColor = AppColors.error;
+      statusIcon = Icons.cancel;
+    } else {
+      statusText = 'Pending';
+      statusDescription = 'Your order is being processed.';
+      statusColor = AppColors.warning;
+      statusIcon = Icons.schedule;
     }
 
     return Container(
@@ -573,67 +558,41 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           width: 1,
         ),
       ),
-      child: Column(
+      child: Row(
         children: [
-          // Status icon and text
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(AppConstants.paddingM),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  statusIcon,
-                  color: statusColor,
-                  size: 32,
-                ),
-              ),
-              const SizedBox(width: AppConstants.paddingM),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      statusText,
-                      style: AppTypography.h5.copyWith(
-                        color: statusColor,
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.paddingXS),
-                    Text(
-                      statusDescription,
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Container(
+            padding: const EdgeInsets.all(AppConstants.paddingM),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              statusIcon,
+              color: statusColor,
+              size: 32,
+            ),
           ),
-
-          // Progress bar (only for preparing status)
-          if (_currentStatus == 'preparing') ...[
-            const SizedBox(height: AppConstants.paddingM),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(AppConstants.radiusS),
-              child: LinearProgressIndicator(
-                value: _preparationProgress / 100,
-                minHeight: 8,
-                backgroundColor: AppColors.surfaceVariant,
-                valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-              ),
+          const SizedBox(width: AppConstants.paddingM),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  statusText,
+                  style: AppTypography.h5.copyWith(
+                    color: statusColor,
+                  ),
+                ),
+                const SizedBox(height: AppConstants.paddingXS),
+                Text(
+                  statusDescription,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: AppConstants.paddingXS),
-            Text(
-              '$_preparationProgress% complete',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
@@ -660,18 +619,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _merchantName,
+                  _resolveMerchantName(),
                   style: AppTypography.bodyMedium.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 const SizedBox(height: AppConstants.paddingXS),
                 Text(
-                  _merchantAddress,
+                  _resolveAddress().isEmpty ? '—' : _resolveAddress(),
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.textSecondary,
                   ),
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -695,13 +654,17 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   /// Action Buttons: Contact Merchant and Cancel Order
   Widget _buildActionButtons() {
+    final status = _order!.orderStatus;
+    final canCancel = status != OrderStatus.completed &&
+        status != OrderStatus.cancelled;
+
     return Column(
       children: [
-        // Contact Merchant Button (Outline)
         SizedBox(
           width: double.infinity,
           child: OutlinedButton(
-            onPressed: _currentStatus != 'cancelled' ? _contactMerchant : null,
+            onPressed:
+                status != OrderStatus.cancelled ? _contactMerchant : null,
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.primary,
               side: const BorderSide(color: AppColors.primary, width: 1.5),
@@ -730,8 +693,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
         const SizedBox(height: AppConstants.paddingS),
 
-        // Cancel Order Link (Text Button)
-        if (_currentStatus != 'completed' && _currentStatus != 'cancelled')
+        if (canCancel)
           TextButton(
             onPressed: _cancelOrder,
             child: Text(
@@ -739,33 +701,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               style: AppTypography.bodyMedium.copyWith(
                 color: AppColors.error,
                 decoration: TextDecoration.underline,
-              ),
-            ),
-          ),
-
-        // Mark as Completed (for ready status)
-        if (_currentStatus == 'ready')
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                setState(() => _currentStatus = 'completed');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Order marked as completed!'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                padding: const EdgeInsets.symmetric(
-                  vertical: AppConstants.paddingM,
-                ),
-              ),
-              child: Text(
-                'Mark as Picked Up',
-                style: AppTypography.buttonMedium,
               ),
             ),
           ),
@@ -792,10 +727,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               Text('Order Details', style: AppTypography.h4),
               const SizedBox(height: AppConstants.paddingM),
               _buildDetailRow('Order ID', '#${widget.orderId}'),
-              _buildDetailRow('Merchant', _merchantName),
-              _buildDetailRow('Type', _isPickup ? 'Self-Pickup' : 'Delivery'),
-              _buildDetailRow('Total', '${AppConstants.currencySymbol}${_totalAmount.toStringAsFixed(2)}'),
-              _buildDetailRow('Estimated Time', _estimatedTime),
+              _buildDetailRow('Merchant', _resolveMerchantName()),
+              _buildDetailRow('Type', _resolveIsPickup() ? 'Self-Pickup' : 'Delivery'),
+              _buildDetailRow('Total', '${AppConstants.currencySymbol}${_resolveTotal().toStringAsFixed(2)}'),
+              _buildDetailRow(
+                'Status',
+                _order!.orderStatus.toString().split('.').last,
+              ),
               const SizedBox(height: AppConstants.paddingL),
             ],
           ),

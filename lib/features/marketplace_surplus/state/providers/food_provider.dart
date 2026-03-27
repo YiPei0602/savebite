@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:savebite/features/marketplace_surplus/data/services/food_service.dart';
+import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
 
 /// Food Provider
@@ -21,10 +25,16 @@ class FoodProvider with ChangeNotifier {
   // Getters
   List<FoodItemModel> get allFoodItems => _allFoodItems;
   List<FoodItemModel> get filteredFoodItems => _filteredFoodItems;
-  List<FoodItemModel> get displayedFoodItems =>
-      _filteredFoodItems.isNotEmpty || _hasActiveFilters
-          ? _filteredFoodItems
-          : _allFoodItems;
+  /// Items after search/category filters. Stock-only; use [isSurplusSellableToConsumer]
+  /// with [MerchantModel] in UI for pickup-window rules (overnight hours).
+  List<FoodItemModel> get displayedFoodItems {
+    final base = _filteredFoodItems.isNotEmpty || _hasActiveFilters
+        ? _filteredFoodItems
+        : _allFoodItems;
+    return base
+        .where((item) => item.isConsumerVisibleNow() && item.stock > 0)
+        .toList();
+  }
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   Set<FoodCategory> get selectedCategories => _selectedCategories;
@@ -38,21 +48,27 @@ class FoodProvider with ChangeNotifier {
       _selectedDietaryTags.isNotEmpty ||
       _selectedLocation != null;
 
-  /// Load all food items
-  Future<void> loadFoodItems() async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
+  /// Load consumer-visible food items ([ListingStatus.active] only from service).
+  Future<void> loadFoodItems({bool showLoadingIndicator = true}) async {
+    if (showLoadingIndicator) {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+    }
 
     try {
       final fetched = await _foodService.getAllFoodItems();
       _allFoodItems = List<FoodItemModel>.of(fetched);
       _filteredFoodItems = List<FoodItemModel>.of(_allFoodItems);
-      _isLoading = false;
-      notifyListeners();
+      _errorMessage = null;
+      final merchantIds = fetched.map((e) => e.merchantId).toSet();
+      unawaited(MerchantService().syncOpenStateForMerchantIds(merchantIds));
     } catch (e) {
       _errorMessage = e.toString();
-      _isLoading = false;
+    } finally {
+      if (showLoadingIndicator) {
+        _isLoading = false;
+      }
       notifyListeners();
     }
   }
@@ -91,7 +107,9 @@ class FoodProvider with ChangeNotifier {
 
   /// Apply all active filters
   void _applyFilters() {
-    List<FoodItemModel> filtered = List.from(_allFoodItems);
+    List<FoodItemModel> filtered = _allFoodItems
+        .where((item) => item.isConsumerVisibleNow() && item.stock > 0)
+        .toList();
 
     if (_searchQuery.isNotEmpty) {
       final lowerQuery = _searchQuery.toLowerCase();
@@ -120,6 +138,27 @@ class FoodProvider with ChangeNotifier {
 
     _filteredFoodItems = filtered;
     notifyListeners();
+  }
+
+  /// Sets `expired` for this merchant's listings past [closingTime].
+  Future<void> applyListingLifecycleForMerchant(String merchantId) async {
+    try {
+      await _foodService.applyListingLifecycleForMerchant(merchantId);
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Expired listings only: set `dismissedFromMerchantDashboard` (merchant UI hide; docs stay expired).
+  Future<void> dismissExpiredFromMerchantDashboard(String merchantId) async {
+    try {
+      await _foodService.dismissExpiredFromMerchantDashboard(merchantId);
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
   }
 
   /// Get food items by merchant
@@ -180,16 +219,30 @@ class FoodProvider with ChangeNotifier {
   }
 
   /// Update food item (Merchant only)
-  Future<bool> updateFoodItem(FoodItemModel item) async {
+  Future<bool> updateFoodItem(
+    FoodItemModel item, {
+    Uint8List? imageBytes,
+    String? imageFileName,
+    String? imageContentType,
+  }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final updatedItem = await _foodService.updateFoodItem(item);
+      final updatedItem = await _foodService.updateFoodItem(
+        item,
+        imageBytes: imageBytes,
+        imageFileName: imageFileName,
+        imageContentType: imageContentType,
+      );
       final index = _allFoodItems.indexWhere((i) => i.id == updatedItem.id);
       if (index != -1) {
-        _allFoodItems[index] = updatedItem;
+        if (updatedItem.isConsumerVisibleNow()) {
+          _allFoodItems[index] = updatedItem;
+        } else {
+          _allFoodItems.removeAt(index);
+        }
       }
       _isLoading = false;
       notifyListeners();
@@ -229,11 +282,18 @@ class FoodProvider with ChangeNotifier {
       final index = _allFoodItems.indexWhere((item) => item.id == id);
       if (index != -1) {
         _allFoodItems[index] = _allFoodItems[index].copyWith(stock: newStock);
-        notifyListeners();
+        if (_hasActiveFilters) _applyFilters();
+        // Defer notifyListeners to next frame to avoid _dependents.isEmpty
+        // crash when called right after closing a dialog.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          notifyListeners();
+        });
       }
     } catch (e) {
       _errorMessage = e.toString();
-      notifyListeners();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        notifyListeners();
+      });
     }
   }
 

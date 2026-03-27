@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 /// SaveBite App Constants
 ///
 /// This file contains all constant values used throughout the app.
@@ -49,6 +51,23 @@ class AppConstants {
   static const double buttonHeightM = 48.0;
   static const double buttonHeightL = 56.0;
   static const double buttonRadius = 16.0;
+
+  /// Stadium pill radius for primary full-width CTAs (item detail Add to Cart).
+  static const double primaryCtaPillRadius = radiusCircle;
+
+  /// Inner vertical padding inside primary pill CTAs (defines perceived height).
+  static const double primaryCtaVerticalPadding = paddingM;
+
+  /// Sticky footer padding around full-width primary CTAs (inset + bottom safe gap).
+  static const EdgeInsets primaryCtaStickyOuterPadding = EdgeInsets.fromLTRB(
+    paddingM,
+    0,
+    paddingM,
+    paddingM,
+  );
+
+  /// Footer bar with summary content + primary CTA (horizontal inset matches Add to Cart).
+  static const EdgeInsets primaryCtaFooterBlockPadding = EdgeInsets.all(paddingM);
 
   // ============================================================================
   // ANIMATION DURATIONS
