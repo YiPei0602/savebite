@@ -39,6 +39,9 @@ class OrderProvider with ChangeNotifier {
     required PaymentStatus paymentStatus,
     String? deliveryAddress,
     String? pickupAddress,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
+    String? deliveryPlaceId,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -60,6 +63,9 @@ class OrderProvider with ChangeNotifier {
         paymentStatus: paymentStatus,
         deliveryAddress: deliveryAddress,
         pickupAddress: pickupAddress,
+        deliveryLatitude: deliveryLatitude,
+        deliveryLongitude: deliveryLongitude,
+        deliveryPlaceId: deliveryPlaceId,
       );
 
       _currentOrder = order;
@@ -128,6 +134,11 @@ class OrderProvider with ChangeNotifier {
     int limit = 100,
   }) {
     return _orderService.watchOrdersByMerchant(merchantId, limit: limit);
+  }
+
+  /// Live stream for one order (e.g. consumer tracking).
+  Stream<OrderModel?> watchOrderById(String orderId) {
+    return _orderService.watchOrderById(orderId);
   }
 
   /// Get order by ID

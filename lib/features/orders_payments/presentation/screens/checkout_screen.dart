@@ -13,6 +13,7 @@ import 'package:savebite/features/marketplace_surplus/domain/models/merchant_mod
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
+import 'package:savebite/shared/widgets/places_autocomplete_field.dart';
 
 String _normalizeHhMm24(String? raw) {
   if (raw == null) return '';
@@ -65,11 +66,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final TextEditingController _deliveryAddressController =
       TextEditingController();
 
+  double? _deliveryLat;
+  double? _deliveryLng;
+  String? _deliveryPlaceId;
+
   @override
   void initState() {
     super.initState();
-    // Pre-fill from user's saved address if any (legacy).
-    // TODO: API in future - integrate address autocomplete (e.g. Google Places).
+    // Pre-fill text from profile; user must pick a suggestion for coordinates.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final addr =
@@ -175,10 +179,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     if (!_isSelfPickup) {
       final addr = _deliveryAddressController.text.trim();
-      if (addr.isEmpty) {
+      if (addr.isEmpty ||
+          _deliveryLat == null ||
+          _deliveryLng == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Please enter your delivery address'),
+            content: Text(
+              'Please search and select your delivery address from the list.',
+            ),
           ),
         );
         return;
@@ -229,6 +237,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       cartItemsForTracking: Map<String, Map<String, dynamic>>.from(_cartItems),
       deliveryAddress:
           _isSelfPickup ? null : _deliveryAddressController.text.trim(),
+      deliveryLatitude: _isSelfPickup ? null : _deliveryLat,
+      deliveryLongitude: _isSelfPickup ? null : _deliveryLng,
+      deliveryPlaceId: _isSelfPickup ? null : _deliveryPlaceId,
       pickupAddress: _isSelfPickup
           ? (merchantProfile != null &&
                   merchantProfile.address.trim().isNotEmpty
@@ -510,7 +521,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Widget _buildDeliveryAddressInfo() {
-    // TODO: API in future - integrate address autocomplete (e.g. Google Places).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -520,33 +530,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(height: AppConstants.paddingS),
-        TextFormField(
-          controller: _deliveryAddressController,
-          maxLines: 3,
-          decoration: InputDecoration(
-            hintText: 'Enter your full street address',
-            prefixIcon: const Icon(Icons.location_on_outlined),
-            filled: true,
-            fillColor: AppColors.surfaceVariant,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              borderSide: BorderSide(color: AppColors.primary, width: 2),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
+        const SizedBox(height: AppConstants.paddingXS),
+        Text(
+          'Search and select your address (Malaysia).',
+          style: AppTypography.bodySmall.copyWith(
+            color: AppColors.textSecondary,
           ),
-          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: AppConstants.paddingS),
+        PlacesAutocompleteField(
+          controller: _deliveryAddressController,
+          hintText: 'Search delivery address',
+          onPlaceSelected: (d) {
+            setState(() {
+              _deliveryLat = d.latitude;
+              _deliveryLng = d.longitude;
+              _deliveryPlaceId = d.placeId;
+            });
+          },
+          onChanged: (_) {
+            setState(() {
+              _deliveryLat = null;
+              _deliveryLng = null;
+              _deliveryPlaceId = null;
+            });
+          },
         ),
       ],
     );

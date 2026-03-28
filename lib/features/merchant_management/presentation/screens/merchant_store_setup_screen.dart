@@ -10,6 +10,7 @@ import 'package:savebite/features/marketplace_surplus/state/providers/merchant_p
 import 'package:savebite/shared/utils/malaysia_phone_utils.dart';
 import 'package:savebite/shared/utils/merchant_schedule_utils.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
+import 'package:savebite/shared/widgets/places_autocomplete_field.dart';
 
 /// Merchant Store Setup (required after merchant signup).
 ///
@@ -41,6 +42,11 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
   TimeOfDay? _opening;
   TimeOfDay? _closing;
 
+  /// From Places selection; merged with [MerchantModel] on save.
+  double? _shopLat;
+  double? _shopLng;
+  String? _shopPlaceId;
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -50,9 +56,16 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
     super.dispose();
   }
 
-  bool _isComplete() {
+  bool _hasValidShopCoords(MerchantModel? existing) {
+    final lat = _shopLat ?? existing?.latitude;
+    final lng = _shopLng ?? existing?.longitude;
+    return lat != null && lng != null;
+  }
+
+  bool _isComplete(MerchantModel? existing) {
     return _nameController.text.trim().isNotEmpty &&
         _addressController.text.trim().isNotEmpty &&
+        _hasValidShopCoords(existing) &&
         normalizeMalaysianMobileToE164(_phoneController.text.trim()) != null &&
         _operatingDays.isNotEmpty &&
         _opening != null &&
@@ -229,6 +242,19 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
       return;
     }
 
+    final lat = _shopLat ?? existing?.latitude;
+    final lng = _shopLng ?? existing?.longitude;
+    if (lat == null || lng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please select your shop address from the search suggestions.',
+          ),
+        ),
+      );
+      return;
+    }
+
     setState(() => _saving = true);
     try {
       final email = context.read<AuthProvider>().currentUser?.email ?? '';
@@ -244,8 +270,9 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
         description: _descriptionController.text.trim(),
         imageUrl: existing?.imageUrl ?? '',
         categories: existing?.categories ?? const <String>[],
-        latitude: existing?.latitude,
-        longitude: existing?.longitude,
+        latitude: lat,
+        longitude: lng,
+        googlePlaceId: _shopPlaceId ?? existing?.googlePlaceId,
         isOpen: existing?.isOpen ?? true,
         openingTime: existing?.openingTime,
         closingTime: existing?.closingTime,
@@ -339,6 +366,9 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
           if (existing != null) {
             _nameController.text = existing.name;
             _addressController.text = existing.address;
+            _shopLat = existing.latitude;
+            _shopLng = existing.longitude;
+            _shopPlaceId = existing.googlePlaceId;
             _phoneController.text = existing.phoneNumber.isNotEmpty
                 ? existing.phoneNumber
                 : (auth.currentUser?.phoneNumber ?? '');
@@ -414,18 +444,37 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: AppConstants.paddingM),
-                    TextFormField(
-                      controller: _addressController,
-                      decoration: _decoration(
-                        'Address',
-                        'e.g., 123 Jalan Something, Penang',
-                        Icons.location_on_outlined,
+                    Text(
+                      'Address',
+                      style: AppTypography.bodyMedium.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Address is required'
-                          : null,
-                      maxLines: 2,
-                      onChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: AppConstants.paddingXS),
+                    Text(
+                      'Search and select your shop location (Malaysia).',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppConstants.paddingS),
+                    PlacesAutocompleteField(
+                      controller: _addressController,
+                      hintText: 'Search shop address',
+                      onPlaceSelected: (d) {
+                        setState(() {
+                          _shopLat = d.latitude;
+                          _shopLng = d.longitude;
+                          _shopPlaceId = d.placeId;
+                        });
+                      },
+                      onChanged: (_) {
+                        setState(() {
+                          _shopLat = null;
+                          _shopLng = null;
+                          _shopPlaceId = null;
+                        });
+                      },
                     ),
                     const SizedBox(height: AppConstants.paddingM),
                     TextFormField(
@@ -476,7 +525,7 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
                     SizedBox(
                       height: 56,
                       child: ElevatedButton(
-                        onPressed: _saving || !_isComplete()
+                        onPressed: _saving || !_isComplete(existing)
                             ? null
                             : () => _save(merchantId, existing),
                         style: ElevatedButton.styleFrom(

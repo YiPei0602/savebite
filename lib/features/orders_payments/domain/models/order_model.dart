@@ -28,6 +28,14 @@ class OrderModel {
   final DateTime? paidAt;
   final String? deliveryAddress;
   final String? pickupAddress;
+  final double? deliveryLatitude;
+  final double? deliveryLongitude;
+  final String? deliveryPlaceId;
+  final double? merchantLatitude;
+  final double? merchantLongitude;
+  /// Delivery tracking (optional). Expected to be updated while order is `onTheWay`.
+  final double? driverLatitude;
+  final double? driverLongitude;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? completedAt;
@@ -51,6 +59,13 @@ class OrderModel {
     this.paidAt,
     this.deliveryAddress,
     this.pickupAddress,
+    this.deliveryLatitude,
+    this.deliveryLongitude,
+    this.deliveryPlaceId,
+    this.merchantLatitude,
+    this.merchantLongitude,
+    this.driverLatitude,
+    this.driverLongitude,
     required this.createdAt,
     this.updatedAt,
     this.completedAt,
@@ -90,6 +105,15 @@ class OrderModel {
       paidAt: dateTimeFromFirestore(json['paidAt']),
       deliveryAddress: json['deliveryAddress'] as String?,
       pickupAddress: json['pickupAddress'] as String?,
+      deliveryLatitude: (json['deliveryLatitude'] as num?)?.toDouble(),
+      deliveryLongitude: (json['deliveryLongitude'] as num?)?.toDouble(),
+      deliveryPlaceId: (json['deliveryPlaceId'] as String?)?.trim().isNotEmpty == true
+          ? (json['deliveryPlaceId'] as String).trim()
+          : null,
+      merchantLatitude: (json['merchantLatitude'] as num?)?.toDouble(),
+      merchantLongitude: (json['merchantLongitude'] as num?)?.toDouble(),
+      driverLatitude: (json['driverLatitude'] as num?)?.toDouble(),
+      driverLongitude: (json['driverLongitude'] as num?)?.toDouble(),
       createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
       updatedAt: dateTimeFromFirestore(json['updatedAt']),
       completedAt: dateTimeFromFirestore(json['completedAt']),
@@ -116,6 +140,13 @@ class OrderModel {
       'paidAt': timestampFromDateTime(paidAt),
       'deliveryAddress': deliveryAddress,
       'pickupAddress': pickupAddress,
+      'deliveryLatitude': deliveryLatitude,
+      'deliveryLongitude': deliveryLongitude,
+      'deliveryPlaceId': deliveryPlaceId,
+      'merchantLatitude': merchantLatitude,
+      'merchantLongitude': merchantLongitude,
+      'driverLatitude': driverLatitude,
+      'driverLongitude': driverLongitude,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': timestampFromDateTime(updatedAt),
       'completedAt': timestampFromDateTime(completedAt),
@@ -141,6 +172,13 @@ class OrderModel {
     DateTime? paidAt,
     String? deliveryAddress,
     String? pickupAddress,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
+    String? deliveryPlaceId,
+    double? merchantLatitude,
+    double? merchantLongitude,
+    double? driverLatitude,
+    double? driverLongitude,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? completedAt,
@@ -164,6 +202,13 @@ class OrderModel {
       paidAt: paidAt ?? this.paidAt,
       deliveryAddress: deliveryAddress ?? this.deliveryAddress,
       pickupAddress: pickupAddress ?? this.pickupAddress,
+      deliveryLatitude: deliveryLatitude ?? this.deliveryLatitude,
+      deliveryLongitude: deliveryLongitude ?? this.deliveryLongitude,
+      deliveryPlaceId: deliveryPlaceId ?? this.deliveryPlaceId,
+      merchantLatitude: merchantLatitude ?? this.merchantLatitude,
+      merchantLongitude: merchantLongitude ?? this.merchantLongitude,
+      driverLatitude: driverLatitude ?? this.driverLatitude,
+      driverLongitude: driverLongitude ?? this.driverLongitude,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,

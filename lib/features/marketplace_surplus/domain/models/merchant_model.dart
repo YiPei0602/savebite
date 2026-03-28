@@ -12,6 +12,8 @@ class MerchantModel {
   final String address;
   final double? latitude;
   final double? longitude;
+  /// Google Places `place_id` when address was chosen via Places.
+  final String? googlePlaceId;
   final double rating;
   final int reviewCount;
   final String phoneNumber;
@@ -36,6 +38,7 @@ class MerchantModel {
     this.address = '',
     this.latitude,
     this.longitude,
+    this.googlePlaceId,
     this.rating = 0.0,
     this.reviewCount = 0,
     required this.phoneNumber,
@@ -65,6 +68,9 @@ class MerchantModel {
       address: (json['address'] as String?) ?? '',
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
+      googlePlaceId: (json['googlePlaceId'] as String?)?.trim().isNotEmpty == true
+          ? (json['googlePlaceId'] as String).trim()
+          : null,
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       reviewCount: (json['reviewCount'] as int?) ?? 0,
       phoneNumber: (json['phoneNumber'] as String?) ?? '',
@@ -98,6 +104,7 @@ class MerchantModel {
       'address': address,
       'latitude': latitude,
       'longitude': longitude,
+      'googlePlaceId': googlePlaceId,
       'rating': rating,
       'reviewCount': reviewCount,
       'phoneNumber': phoneNumber,
@@ -118,6 +125,7 @@ class MerchantModel {
     String? address,
     double? latitude,
     double? longitude,
+    String? googlePlaceId,
     double? rating,
     int? reviewCount,
     String? phoneNumber,
@@ -138,6 +146,7 @@ class MerchantModel {
       address: address ?? this.address,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      googlePlaceId: googlePlaceId ?? this.googlePlaceId,
       rating: rating ?? this.rating,
       reviewCount: reviewCount ?? this.reviewCount,
       phoneNumber: phoneNumber ?? this.phoneNumber,

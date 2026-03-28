@@ -15,6 +15,7 @@ class OrderService {
 
   static const String _collection = 'orders';
   static const String _foodCollection = 'food_items';
+  static const String _merchantCollection = 'merchants';
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   static String _paymentStatusString(PaymentStatus s) =>
@@ -40,6 +41,9 @@ class OrderService {
     required PaymentStatus paymentStatus,
     String? deliveryAddress,
     String? pickupAddress,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
+    String? deliveryPlaceId,
   }) async {
     if (paymentStatus == PaymentStatus.failed) {
       throw ArgumentError(
@@ -73,12 +77,29 @@ class OrderService {
       paidAt: now,
       deliveryAddress: deliveryAddress,
       pickupAddress: pickupAddress,
+      deliveryLatitude: deliveryLatitude,
+      deliveryLongitude: deliveryLongitude,
+      deliveryPlaceId: deliveryPlaceId,
       createdAt: now,
     );
 
     final checkoutNow = DateTime.now();
 
     await _firestore.runTransaction((tx) async {
+      // Snapshot merchant coordinates at order creation time.
+      double? merchantLat;
+      double? merchantLng;
+      try {
+        final merchantRef =
+            _firestore.collection(_merchantCollection).doc(merchantId);
+        final merchantSnap = await tx.get(merchantRef);
+        final m = merchantSnap.data();
+        merchantLat = (m?['latitude'] as num?)?.toDouble();
+        merchantLng = (m?['longitude'] as num?)?.toDouble();
+      } catch (_) {
+        // Best-effort: distance/ETA will be unavailable if coords are missing.
+      }
+
       for (final item in items) {
         final foodId = item.foodItem.id;
         final qty = item.quantity;
@@ -107,7 +128,12 @@ class OrderService {
       }
 
       final payload = <String, dynamic>{
-        ...order.toJson(),
+        ...order
+            .copyWith(
+              merchantLatitude: merchantLat,
+              merchantLongitude: merchantLng,
+            )
+            .toJson(),
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': null,
         'completedAt': null,
@@ -124,6 +150,16 @@ class OrderService {
     final data = doc.data();
     if (!doc.exists || data == null) return null;
     return _fromFirestore(data, doc.id);
+  }
+
+  /// Real-time updates for a single order document.
+  Stream<OrderModel?> watchOrderById(String orderId) {
+    return _firestore.collection(_collection).doc(orderId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      final data = doc.data();
+      if (data == null) return null;
+      return _fromFirestore(data, doc.id);
+    });
   }
 
   Future<List<OrderModel>> getOrdersByUser(String userId) async {
@@ -172,6 +208,55 @@ class OrderService {
         .toList(growable: false);
   }
 
+  /// Valid single-step transitions from [current], respecting [fulfillmentType].
+  ///
+  /// Pickup: `pending → confirmed → preparing → ready → completed` (no `onTheWay`).
+  /// Delivery: `… → ready → onTheWay → completed`.
+  /// Cancel: only from `pending` or `confirmed`.
+  static Set<OrderStatus> allowedNextStatuses({
+    required OrderStatus current,
+    required FulfillmentType fulfillmentType,
+  }) {
+    switch (current) {
+      case OrderStatus.pending:
+        return {OrderStatus.confirmed, OrderStatus.cancelled};
+      case OrderStatus.confirmed:
+        return {OrderStatus.preparing, OrderStatus.cancelled};
+      case OrderStatus.preparing:
+        return {OrderStatus.ready};
+      case OrderStatus.ready:
+        if (fulfillmentType == FulfillmentType.pickup) {
+          return {OrderStatus.completed};
+        }
+        return {OrderStatus.onTheWay};
+      case OrderStatus.onTheWay:
+        return {OrderStatus.completed};
+      case OrderStatus.completed:
+      case OrderStatus.cancelled:
+        return const {};
+    }
+  }
+
+  static void assertValidStatusTransition(OrderModel existing, OrderStatus newStatus) {
+    final current = existing.orderStatus;
+    if (current == newStatus) {
+      return;
+    }
+    final allowed = allowedNextStatuses(
+      current: current,
+      fulfillmentType: existing.fulfillmentType,
+    );
+    if (!allowed.contains(newStatus)) {
+      final allowedStr = allowed.isEmpty
+          ? 'none (terminal state)'
+          : allowed.map((s) => s.name).join(', ');
+      throw ArgumentError(
+        'Invalid order status transition: ${current.name} → ${newStatus.name} '
+        '(${existing.fulfillmentType.name}). Allowed: $allowedStr.',
+      );
+    }
+  }
+
   Future<OrderModel> updateOrderStatus(
     String orderId,
     OrderStatus newStatus,
@@ -181,6 +266,12 @@ class OrderService {
     if (existing.paymentStatus != PaymentStatus.paid) {
       throw Exception('Order payment is not complete.');
     }
+
+    if (existing.orderStatus == newStatus) {
+      return existing;
+    }
+
+    assertValidStatusTransition(existing, newStatus);
 
     final docRef = _firestore.collection(_collection).doc(orderId);
     final update = <String, dynamic>{

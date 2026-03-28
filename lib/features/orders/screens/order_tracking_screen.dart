@@ -1,4 +1,9 @@
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -10,10 +15,7 @@ import '../../orders_payments/domain/models/order_model.dart';
 import '../../../shared/utils/merchant_display_name_utils.dart';
 import '../../../shared/widgets/app_back_button.dart';
 
-/// Order Tracking Screen
-///
-/// Loads order once from Firestore via [OrderProvider.getOrderById].
-/// Displays [OrderStatus] and addresses from the order document (no simulated progress).
+/// Consumer-facing order tracking: live Firestore stream + status-driven UI.
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
   final String? merchantName;
@@ -35,30 +37,254 @@ class OrderTrackingScreen extends StatefulWidget {
 }
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
-  OrderModel? _order;
-  bool _loading = true;
-  String? _error;
+  Stream<OrderModel?>? _orderStream;
+  bool _demoAutoProgressStarted = false;
+  bool _demoAutoProgressStopped = false;
+  GoogleMapController? _mapController;
+  String? _lastFittedMapKey;
+
+  static final bool _demoAutoProgressEnabled =
+      kDebugMode &&
+      const bool.fromEnvironment(
+        'DEMO_AUTO_PROGRESS_ORDERS',
+        defaultValue: true,
+      );
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadOrder());
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _orderStream ??=
+        context.read<OrderProvider>().watchOrderById(widget.orderId);
   }
 
-  Future<void> _loadOrder() async {
-    final orderProvider = context.read<OrderProvider>();
-    final o = await orderProvider.getOrderById(widget.orderId);
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _order = o;
-      _error = o == null ? 'Order not found' : null;
+  @override
+  void dispose() {
+    _demoAutoProgressStopped = true;
+    super.dispose();
+  }
+
+  void _maybeStartDemoAutoProgression(OrderModel order) {
+    if (!_demoAutoProgressEnabled) return;
+    if (_demoAutoProgressStarted) return;
+    if (order.orderStatus == OrderStatus.completed ||
+        order.orderStatus == OrderStatus.cancelled) {
+      return;
+    }
+
+    _demoAutoProgressStarted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _demoAutoProgressStopped) return;
+      _runDemoAutoProgression();
     });
   }
 
-  String _resolveMerchantName() {
-    final order = _order;
-    if (order == null) return widget.merchantName ?? 'Store';
+  static OrderStatus? _nextStatusInDemoFlow({
+    required FulfillmentType fulfillmentType,
+    required OrderStatus current,
+  }) {
+    final flow = fulfillmentType == FulfillmentType.delivery
+        ? const <OrderStatus>[
+            OrderStatus.pending,
+            OrderStatus.confirmed,
+            OrderStatus.preparing,
+            OrderStatus.ready,
+            OrderStatus.onTheWay,
+            OrderStatus.completed,
+          ]
+        : const <OrderStatus>[
+            OrderStatus.pending,
+            OrderStatus.confirmed,
+            OrderStatus.preparing,
+            OrderStatus.ready,
+            OrderStatus.completed,
+          ];
+
+    final i = flow.indexOf(current);
+    if (i < 0) return null;
+    if (i >= flow.length - 1) return null;
+    return flow[i + 1];
+  }
+
+  static Duration _demoDelay({
+    required FulfillmentType fulfillmentType,
+    required OrderStatus current,
+    required OrderStatus next,
+    required Random rng,
+  }) {
+    // Pickup: pending → confirmed (2s) → preparing (3s) → ready (5s) → completed (2s).
+    // Delivery: same, plus ready → onTheWay (2s), onTheWay → completed (6–8s).
+    if (fulfillmentType == FulfillmentType.delivery &&
+        current == OrderStatus.onTheWay &&
+        next == OrderStatus.completed) {
+      final seconds = 6 + rng.nextInt(3); // 6, 7, 8
+      return Duration(seconds: seconds);
+    }
+    if (current == OrderStatus.pending && next == OrderStatus.confirmed) {
+      return const Duration(seconds: 2);
+    }
+    if (current == OrderStatus.confirmed && next == OrderStatus.preparing) {
+      return const Duration(seconds: 3);
+    }
+    if (current == OrderStatus.preparing && next == OrderStatus.ready) {
+      return const Duration(seconds: 5);
+    }
+    if (current == OrderStatus.ready && next == OrderStatus.onTheWay) {
+      return const Duration(seconds: 2);
+    }
+    if (current == OrderStatus.ready && next == OrderStatus.completed) {
+      return const Duration(seconds: 2);
+    }
+    // Default small delay to avoid tight loops if flow changes.
+    return const Duration(seconds: 1);
+  }
+
+  Future<void> _runDemoAutoProgression() async {
+    final rng = Random();
+    final orderProvider = context.read<OrderProvider>();
+
+    while (mounted && !_demoAutoProgressStopped) {
+      final current = await orderProvider
+          .watchOrderById(widget.orderId)
+          .firstWhere((o) => o != null);
+      if (!mounted || _demoAutoProgressStopped) return;
+      final order = current!;
+
+      if (order.orderStatus == OrderStatus.completed ||
+          order.orderStatus == OrderStatus.cancelled) {
+        return;
+      }
+
+      final next = _nextStatusInDemoFlow(
+        fulfillmentType: order.fulfillmentType,
+        current: order.orderStatus,
+      );
+      if (next == null) return;
+
+      final delay = _demoDelay(
+        fulfillmentType: order.fulfillmentType,
+        current: order.orderStatus,
+        next: next,
+        rng: rng,
+      );
+      await Future.delayed(delay);
+      if (!mounted || _demoAutoProgressStopped) return;
+
+      final ok = await orderProvider.updateOrderStatus(widget.orderId, next);
+      if (!ok) {
+        return;
+      }
+    }
+  }
+
+  bool _shouldShowDeliveryMap(OrderModel order) {
+    if (order.fulfillmentType != FulfillmentType.delivery) return false;
+    if (order.orderStatus != OrderStatus.onTheWay) return false;
+    return order.merchantLatitude != null &&
+        order.merchantLongitude != null &&
+        order.deliveryLatitude != null &&
+        order.deliveryLongitude != null;
+  }
+
+  LatLngBounds _boundsFor(LatLng a, LatLng b) {
+    final south = min(a.latitude, b.latitude);
+    final north = max(a.latitude, b.latitude);
+    final west = min(a.longitude, b.longitude);
+    final east = max(a.longitude, b.longitude);
+    return LatLngBounds(
+      southwest: LatLng(south, west),
+      northeast: LatLng(north, east),
+    );
+  }
+
+  Future<void> _fitMapToMarkers({
+    required GoogleMapController controller,
+    required LatLng merchant,
+    required LatLng delivery,
+    required String fitKey,
+  }) async {
+    if (_lastFittedMapKey == fitKey) return;
+    _lastFittedMapKey = fitKey;
+
+    final bounds = _boundsFor(merchant, delivery);
+    try {
+      // Delay slightly to allow the platform view to size itself.
+      await Future.delayed(const Duration(milliseconds: 120));
+      await controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 56));
+    } catch (_) {
+      // If bounds animation fails (rare on first frame), fall back to centered zoom.
+      final center = LatLng(
+        (merchant.latitude + delivery.latitude) / 2.0,
+        (merchant.longitude + delivery.longitude) / 2.0,
+      );
+      await controller.moveCamera(CameraUpdate.newLatLngZoom(center, 13.5));
+    }
+  }
+
+  Widget _buildDeliveryMap(OrderModel order) {
+    final merchant = LatLng(order.merchantLatitude!, order.merchantLongitude!);
+    final delivery = LatLng(order.deliveryLatitude!, order.deliveryLongitude!);
+
+    final markers = <Marker>{
+      Marker(
+        markerId: const MarkerId('merchant'),
+        position: merchant,
+        infoWindow: const InfoWindow(title: 'Merchant'),
+      ),
+      Marker(
+        markerId: const MarkerId('delivery'),
+        position: delivery,
+        infoWindow: const InfoWindow(title: 'Delivery'),
+      ),
+    };
+
+    final center = LatLng(
+      (merchant.latitude + delivery.latitude) / 2.0,
+      (merchant.longitude + delivery.longitude) / 2.0,
+    );
+
+    final fitKey =
+        '${order.id}:${order.orderStatus.name}:${merchant.latitude},${merchant.longitude}:${delivery.latitude},${delivery.longitude}';
+
+    // If we already have a controller (map rebuilt), refit once per key.
+    final controller = _mapController;
+    if (controller != null && _lastFittedMapKey != fitKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _fitMapToMarkers(
+          controller: controller,
+          merchant: merchant,
+          delivery: delivery,
+          fitKey: fitKey,
+        );
+      });
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppConstants.radiusM),
+      child: SizedBox(
+        height: 250,
+        child: GoogleMap(
+          initialCameraPosition: CameraPosition(target: center, zoom: 13.5),
+          markers: markers,
+          myLocationEnabled: false,
+          myLocationButtonEnabled: false,
+          mapToolbarEnabled: false,
+          zoomControlsEnabled: false,
+          onMapCreated: (c) {
+            _mapController = c;
+            _fitMapToMarkers(
+              controller: c,
+              merchant: merchant,
+              delivery: delivery,
+              fitKey: fitKey,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  String _resolveMerchantName(OrderModel order) {
     try {
       final mp = context.read<MerchantProvider>();
       MerchantModel? m;
@@ -78,11 +304,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
   }
 
-  String _resolveAddress() {
-    final order = _order;
-    if (order == null) {
-      return widget.merchantAddress ?? '';
-    }
+  String _resolveAddress(OrderModel order) {
     if (order.fulfillmentType == FulfillmentType.delivery) {
       return order.deliveryAddress?.trim().isNotEmpty == true
           ? order.deliveryAddress!.trim()
@@ -93,21 +315,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         : '';
   }
 
-  bool _resolveIsPickup() {
-    final order = _order;
-    if (order != null) {
-      return order.fulfillmentType == FulfillmentType.pickup;
-    }
-    return widget.isPickup ?? true;
-  }
-
-  double _resolveTotal() {
-    final order = _order;
-    if (order != null) return order.totalPrice;
-    return widget.totalAmount ?? 0.0;
-  }
-
-  void _contactMerchant() {
+  void _contactMerchant(OrderModel order) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -117,7 +325,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _resolveMerchantName(),
+              _resolveMerchantName(order),
               style: AppTypography.bodyMedium.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -174,7 +382,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Future<void> _cancelOrder() async {
-    if (_order == null) return;
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -196,8 +403,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               final ok = await orderProvider.cancelOrder(widget.orderId);
               if (!mounted) return;
               if (ok) {
-                await _loadOrder();
-                if (!mounted) return;
                 messenger.showSnackBar(
                   const SnackBar(
                     content: Text('Order cancelled'),
@@ -228,19 +433,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Widget build(BuildContext context) {
     final appBar = AppBar(
       title: Text('Order Tracking', style: AppTypography.h3),
+      centerTitle: true,
       backgroundColor: AppColors.background,
       elevation: 0,
       leading: const AppBackButton(color: AppColors.textPrimary),
-      actions: [
-        if (!_loading && _error == null && _order != null)
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: AppColors.textPrimary),
-            onPressed: _showOrderDetails,
-          ),
-      ],
     );
 
-    if (_loading) {
+    final stream = _orderStream;
+    if (stream == null) {
       return Scaffold(
         backgroundColor: AppColors.background,
         appBar: appBar,
@@ -250,325 +450,123 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       );
     }
 
-    if (_error != null || _order == null) {
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: appBar,
-        body: Center(
-          child: Padding(
+    return StreamBuilder<OrderModel?>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: appBar,
+            body: const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: appBar,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.paddingL),
+                child: Text(
+                  'Unable to load order: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyMedium,
+                ),
+              ),
+            ),
+          );
+        }
+
+        final order = snapshot.data;
+        if (order == null) {
+          return Scaffold(
+            backgroundColor: AppColors.background,
+            appBar: appBar,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.paddingL),
+                child: Text(
+                  'Order not found',
+                  textAlign: TextAlign.center,
+                  style: AppTypography.bodyMedium,
+                ),
+              ),
+            ),
+          );
+        }
+
+        _maybeStartDemoAutoProgression(order);
+
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          appBar: appBar,
+          body: SingleChildScrollView(
             padding: const EdgeInsets.all(AppConstants.paddingL),
-            child: Text(
-              _error ?? 'Unable to load order',
-              textAlign: TextAlign.center,
-              style: AppTypography.bodyMedium,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: appBar,
-      body: Column(
-        children: [
-          Expanded(
-            flex: 3,
-            child: _buildMapView(),
-          ),
-          _buildBottomSheet(),
-        ],
-      ),
-    );
-  }
-
-  /// Top Half: Map View with User and Merchant Pins
-  Widget _buildMapView() {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryLight.withOpacity(0.1),
-            AppColors.primary.withOpacity(0.15),
-            AppColors.accent.withOpacity(0.1),
-          ],
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Map placeholder with grid pattern
-          Center(
-            child: Icon(
-              Icons.map,
-              size: 120,
-              color: AppColors.primary.withOpacity(0.2),
-            ),
-          ),
-
-          // Merchant Pin
-          Positioned(
-            top: 100,
-            right: 80,
-            child: _buildLocationPin(
-              icon: Icons.store,
-              label: _resolveMerchantName(),
-              color: AppColors.primary,
-              isUser: false,
-            ),
-          ),
-
-          // User Pin
-          Positioned(
-            bottom: 120,
-            left: 60,
-            child: _buildLocationPin(
-              icon: Icons.person_pin_circle,
-              label: 'You',
-              color: AppColors.accent,
-              isUser: true,
-            ),
-          ),
-
-          // Distance indicator
-          Positioned(
-            top: 20,
-            left: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.paddingM,
-                vertical: AppConstants.paddingS,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppConstants.radiusL),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.shadow,
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_shouldShowDeliveryMap(order)) ...[
+                  _buildDeliveryMap(order),
+                  const SizedBox(height: AppConstants.paddingL),
                 ],
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.directions_walk,
-                    size: 20,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: AppConstants.paddingS),
-                  Text(
-                    '2.3 km away',
-                    style: AppTypography.bodyMedium.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                _buildStatusHeroCard(order),
+                const SizedBox(height: AppConstants.paddingL),
+                if (order.orderStatus != OrderStatus.cancelled) ...[
+                  _buildProgressCard(order),
+                  const SizedBox(height: AppConstants.paddingL),
                 ],
-              ),
+                _buildLocationCard(order),
+                const SizedBox(height: AppConstants.paddingL),
+                _buildActionButtons(order),
+                const SizedBox(height: 8),
+              ],
             ),
           ),
-
-          // Order ID badge
-          Positioned(
-            top: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.paddingM,
-                vertical: AppConstants.paddingS,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppConstants.radiusL),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.shadow,
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Text(
-                'Order #${widget.orderId}',
-                style: AppTypography.bodySmall.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  /// Location Pin Widget
-  Widget _buildLocationPin({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required bool isUser,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Pin icon
-        Container(
-          padding: const EdgeInsets.all(AppConstants.paddingM),
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: color.withOpacity(0.4),
-                blurRadius: 12,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 28,
-          ),
-        ),
+  Widget _buildStatusHeroCard(OrderModel order) {
+    final s = order.orderStatus;
+    final title = _statusTitle(s, order.fulfillmentType);
+    final description = _statusDescription(s, order.fulfillmentType);
+    final style = _statusStyle(s, order.fulfillmentType);
+    final etaLine = _deliveryEtaLine(order);
 
-        // Pin stem
-        Container(
-          width: 3,
-          height: 20,
-          color: color,
-        ),
-
-        // Label
-        Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.paddingS,
-            vertical: AppConstants.paddingXS,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppConstants.radiusS),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.shadow,
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Bottom Sheet: Status Indicator and Actions
-  Widget _buildBottomSheet() {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppConstants.radiusXL),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 12,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Drag handle
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-
-              const SizedBox(height: AppConstants.paddingL),
-
-              // Status Indicator
-              _buildStatusIndicator(),
-
-              const SizedBox(height: AppConstants.paddingL),
-
-              // Merchant Info
-              _buildMerchantInfo(),
-
-              const SizedBox(height: AppConstants.paddingL),
-
-              // Action Buttons
-              _buildActionButtons(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Status from Firestore [OrderModel.orderStatus] (Pending / Completed / Cancelled display).
-  Widget _buildStatusIndicator() {
-    final s = _order!.orderStatus;
-    final String statusText;
-    final String statusDescription;
-    final Color statusColor;
-    final IconData statusIcon;
-
-    if (s == OrderStatus.completed) {
-      statusText = 'Completed';
-      statusDescription = 'Thank you for your order.';
-      statusColor = AppColors.success;
-      statusIcon = Icons.done_all;
-    } else if (s == OrderStatus.cancelled) {
-      statusText = 'Cancelled';
-      statusDescription = 'This order has been cancelled.';
-      statusColor = AppColors.error;
-      statusIcon = Icons.cancel;
-    } else {
-      statusText = 'Pending';
-      statusDescription = 'Your order is being processed.';
-      statusColor = AppColors.warning;
-      statusIcon = Icons.schedule;
-    }
+    final id = order.id.isNotEmpty ? order.id : widget.orderId;
+    final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingL),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        border: Border.all(
-          color: statusColor.withOpacity(0.3),
-          width: 1,
-        ),
+        border: Border.all(color: AppColors.border.withOpacity(0.7)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadow,
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(AppConstants.paddingM),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: statusColor.withOpacity(0.2),
+              color: style.color.withOpacity(0.2),
               shape: BoxShape.circle,
             ),
             child: Icon(
-              statusIcon,
-              color: statusColor,
+              style.icon,
+              color: style.color,
               size: 32,
             ),
           ),
@@ -578,19 +576,48 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  statusText,
-                  style: AppTypography.h5.copyWith(
-                    color: statusColor,
+                  title,
+                  style: AppTypography.h3.copyWith(
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: AppConstants.paddingXS),
                 Text(
-                  statusDescription,
+                  description,
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.textSecondary,
                   ),
                 ),
+                if (etaLine != null) ...[
+                  const SizedBox(height: AppConstants.paddingS),
+                  Text(
+                    etaLine,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ],
+            ),
+          ),
+          const SizedBox(width: AppConstants.paddingS),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.paddingS,
+              vertical: AppConstants.paddingXS,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceVariant,
+              borderRadius: BorderRadius.circular(AppConstants.radiusS),
+            ),
+            child: Text(
+              '#$shortId',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -598,65 +625,163 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  /// Merchant Information
-  Widget _buildMerchantInfo() {
+  /// Delivery-only ETA/distance line.
+  ///
+  /// - If `onTheWay`: compute driver → delivery (fallback to merchant if driver missing).
+  /// - Else: compute merchant → delivery.
+  /// - Pickup orders: no ETA/distance.
+  String? _deliveryEtaLine(OrderModel order) {
+    if (order.fulfillmentType != FulfillmentType.delivery) return null;
+    if (order.orderStatus == OrderStatus.cancelled ||
+        order.orderStatus == OrderStatus.completed) {
+      return null;
+    }
+    if (order.orderStatus == OrderStatus.pending) return null;
+
+    final dl = order.deliveryLatitude;
+    final dlg = order.deliveryLongitude;
+    if (dl == null || dlg == null) return null;
+
+    double? fromLat;
+    double? fromLng;
+    if (order.orderStatus == OrderStatus.onTheWay) {
+      fromLat = order.driverLatitude ?? order.merchantLatitude;
+      fromLng = order.driverLongitude ?? order.merchantLongitude;
+    } else {
+      fromLat = order.merchantLatitude;
+      fromLng = order.merchantLongitude;
+    }
+    if (fromLat == null || fromLng == null) return null;
+
+    final meters = Geolocator.distanceBetween(fromLat, fromLng, dl, dlg);
+    final km = meters / 1000.0;
+    // Heuristic speed: 30 km/h.
+    const speedKmh = 30.0;
+    final mins = (km / speedKmh * 60.0).ceil().clamp(1, 9999);
+    final kmText = km < 0.05 ? '0.1' : km.toStringAsFixed(1);
+    return 'Arriving in $mins mins • $kmText km';
+  }
+
+  Widget _buildProgressCard(OrderModel order) {
+    final labels = _progressLabels(order.fulfillmentType);
+    final currentIndex = _progressIndex(order);
+    final currentColor = _statusStyle(order.orderStatus, order.fulfillmentType).color;
+
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingM),
       decoration: BoxDecoration(
-        color: AppColors.surfaceVariant,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.border.withOpacity(0.7)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.store,
-            color: AppColors.primary,
-            size: 24,
-          ),
-          const SizedBox(width: AppConstants.paddingM),
-          Expanded(
+          Text('Progress', style: AppTypography.h5),
+          const SizedBox(height: AppConstants.paddingM),
+          for (int i = 0; i < labels.length; i++)
+            _buildTimelineRow(
+              label: labels[i],
+              isDone: order.orderStatus == OrderStatus.completed
+                  ? true
+                  : i < currentIndex,
+              isCurrent: order.orderStatus == OrderStatus.completed
+                  ? i == labels.length - 1
+                  : i == currentIndex,
+              isLast: i == labels.length - 1,
+              currentColor: currentColor,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineRow({
+    required String label,
+    required bool isDone,
+    required bool isCurrent,
+    required bool isLast,
+    required Color currentColor,
+  }) {
+    final Color dotColor = isDone
+        ? AppColors.success
+        : isCurrent
+            ? currentColor
+            : AppColors.divider;
+    final Widget dot = isDone
+        ? const Icon(Icons.check_circle, size: 22, color: AppColors.success)
+        : Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isCurrent ? dotColor : Colors.transparent,
+              border: Border.all(
+                color: isCurrent ? dotColor : AppColors.divider,
+                width: 2.5,
+              ),
+            ),
+          );
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : AppConstants.paddingM),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 28,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _resolveMerchantName(),
-                  style: AppTypography.bodyMedium.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppConstants.paddingXS),
-                Text(
-                  _resolveAddress().isEmpty ? '—' : _resolveAddress(),
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                dot,
+                if (!isLast) ...[
+                  const SizedBox(height: 4),
+                  _timelineConnector(isDone: isDone),
+                ],
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.directions),
-            color: AppColors.primary,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Opening directions...'),
-                ),
-              );
-            },
+          const SizedBox(width: AppConstants.paddingM),
+          Expanded(
+            child: Text(
+              label,
+              style: AppTypography.bodyMedium.copyWith(
+                fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                color: isDone || isCurrent
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// Action Buttons: Contact Merchant and Cancel Order
-  Widget _buildActionButtons() {
-    final status = _order!.orderStatus;
-    final canCancel = status != OrderStatus.completed &&
-        status != OrderStatus.cancelled;
+  Widget _timelineConnector({required bool isDone}) {
+    if (isDone) {
+      return Container(
+        width: 3,
+        height: 24,
+        color: AppColors.success,
+      );
+    }
+    return Column(
+      children: [
+        for (int i = 0; i < 5; i++)
+          Container(
+            width: 3,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 3),
+            color: AppColors.divider,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons(OrderModel order) {
+    final status = order.orderStatus;
+    final canCancel =
+        status == OrderStatus.pending || status == OrderStatus.confirmed;
 
     return Column(
       children: [
@@ -664,7 +789,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           width: double.infinity,
           child: OutlinedButton(
             onPressed:
-                status != OrderStatus.cancelled ? _contactMerchant : null,
+                status != OrderStatus.cancelled ? () => _contactMerchant(order) : null,
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.primary,
               side: const BorderSide(color: AppColors.primary, width: 1.5),
@@ -690,17 +815,29 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             ),
           ),
         ),
-
         const SizedBox(height: AppConstants.paddingS),
-
         if (canCancel)
-          TextButton(
-            onPressed: _cancelOrder,
-            child: Text(
-              'Cancel Order',
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.error,
-                decoration: TextDecoration.underline,
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _cancelOrder,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.error,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppConstants.paddingM,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                ),
+              ),
+              child: Text(
+                'Cancel Order',
+                style: AppTypography.buttonMedium.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
@@ -708,60 +845,144 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  /// Show Order Details Dialog
-  void _showOrderDetails() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppConstants.radiusL),
-        ),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Order Details', style: AppTypography.h4),
-              const SizedBox(height: AppConstants.paddingM),
-              _buildDetailRow('Order ID', '#${widget.orderId}'),
-              _buildDetailRow('Merchant', _resolveMerchantName()),
-              _buildDetailRow('Type', _resolveIsPickup() ? 'Self-Pickup' : 'Delivery'),
-              _buildDetailRow('Total', '${AppConstants.currencySymbol}${_resolveTotal().toStringAsFixed(2)}'),
-              _buildDetailRow(
-                'Status',
-                _order!.orderStatus.toString().split('.').last,
-              ),
-              const SizedBox(height: AppConstants.paddingL),
-            ],
-          ),
-        );
-      },
-    );
+  List<String> _progressLabels(FulfillmentType type) {
+    if (type == FulfillmentType.pickup) {
+      return const <String>[
+        'Order placed',
+        'Preparing',
+        'Ready',
+        'Completed',
+      ];
+    }
+    return const <String>[
+      'Order placed',
+      'Preparing',
+      'On the way',
+      'Completed',
+    ];
   }
 
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingS),
+  int _progressIndex(OrderModel order) {
+    final s = order.orderStatus;
+    final type = order.fulfillmentType;
+    if (s == OrderStatus.completed) return 3;
+    if (type == FulfillmentType.pickup) {
+      if (s == OrderStatus.ready) return 2;
+      if (s == OrderStatus.preparing) return 1;
+      // pending / confirmed
+      return 0;
+    }
+    // delivery
+    if (s == OrderStatus.onTheWay) return 2;
+    if (s == OrderStatus.preparing || s == OrderStatus.ready) return 1;
+    // pending / confirmed
+    return 0;
+  }
+
+  Widget _buildLocationCard(OrderModel order) {
+    final isPickup = order.fulfillmentType == FulfillmentType.pickup;
+    final title = isPickup ? 'Pickup at ${_resolveMerchantName(order)}' : 'Deliver to';
+    final address = _resolveAddress(order);
+
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.paddingM),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.border.withOpacity(0.7)),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: AppTypography.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
+          Icon(
+            isPickup ? Icons.storefront_outlined : Icons.location_on_outlined,
+            color: AppColors.primary,
+            size: 22,
           ),
-          Text(
-            value,
-            style: AppTypography.bodyMedium.copyWith(
-              fontWeight: FontWeight.w600,
+          const SizedBox(width: AppConstants.paddingM),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  address.isEmpty ? '—' : address,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+String _statusTitle(OrderStatus s, FulfillmentType type) {
+  switch (s) {
+    case OrderStatus.pending:
+      return 'Waiting for merchant';
+    case OrderStatus.confirmed:
+      return 'Order accepted';
+    case OrderStatus.preparing:
+      return 'Preparing your food';
+    case OrderStatus.ready:
+      return type == FulfillmentType.pickup ? 'Ready for pickup' : 'Ready';
+    case OrderStatus.onTheWay:
+      return 'Out for delivery';
+    case OrderStatus.completed:
+      return 'Completed';
+    case OrderStatus.cancelled:
+      return 'Cancelled';
+  }
+}
+
+String _statusDescription(OrderStatus s, FulfillmentType type) {
+  switch (s) {
+    case OrderStatus.pending:
+      return 'Waiting for the store to accept your order.';
+    case OrderStatus.confirmed:
+      return 'The store has accepted your order.';
+    case OrderStatus.preparing:
+      return 'Your order is being prepared.';
+    case OrderStatus.ready:
+      return type == FulfillmentType.pickup
+          ? 'Your order is ready for pickup.'
+          : 'Your order is ready.';
+    case OrderStatus.onTheWay:
+      return 'Your order is on the way to you.';
+    case OrderStatus.completed:
+      return 'Thank you for your order.';
+    case OrderStatus.cancelled:
+      return 'This order has been cancelled.';
+  }
+}
+
+({Color color, IconData icon}) _statusStyle(OrderStatus s, FulfillmentType type) {
+  switch (s) {
+    case OrderStatus.completed:
+      return (color: AppColors.success, icon: Icons.done_all);
+    case OrderStatus.cancelled:
+      return (color: AppColors.error, icon: Icons.cancel);
+    case OrderStatus.ready:
+      return type == FulfillmentType.pickup
+          ? (color: AppColors.primary, icon: Icons.storefront_outlined)
+          : (color: AppColors.primary, icon: Icons.inventory_2_outlined);
+    case OrderStatus.onTheWay:
+      return (color: AppColors.primary, icon: Icons.local_shipping_outlined);
+    case OrderStatus.preparing:
+      return (color: const Color(0xFFF97316), icon: Icons.restaurant);
+    case OrderStatus.confirmed:
+      return (color: const Color(0xFF2563EB), icon: Icons.check_circle_outline);
+    case OrderStatus.pending:
+      return (color: AppColors.warning, icon: Icons.schedule);
   }
 }

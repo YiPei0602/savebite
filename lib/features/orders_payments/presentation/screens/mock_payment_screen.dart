@@ -290,6 +290,9 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
         paymentStatus: PaymentStatus.paid,
         deliveryAddress: args.deliveryAddress,
         pickupAddress: args.pickupAddress,
+        deliveryLatitude: args.deliveryLatitude,
+        deliveryLongitude: args.deliveryLongitude,
+        deliveryPlaceId: args.deliveryPlaceId,
       );
 
       if (!context.mounted) return;

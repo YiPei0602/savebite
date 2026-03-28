@@ -20,6 +20,9 @@ class MockPaymentCheckoutArgs {
     required this.cartItemsForTracking,
     this.deliveryAddress,
     this.pickupAddress,
+    this.deliveryLatitude,
+    this.deliveryLongitude,
+    this.deliveryPlaceId,
   });
 
   final String userId;
@@ -39,4 +42,7 @@ class MockPaymentCheckoutArgs {
   final Map<String, Map<String, dynamic>> cartItemsForTracking;
   final String? deliveryAddress;
   final String? pickupAddress;
+  final double? deliveryLatitude;
+  final double? deliveryLongitude;
+  final String? deliveryPlaceId;
 }

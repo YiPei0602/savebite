@@ -71,7 +71,7 @@ Future<void> showOrderPlacedSuccessDialog({
                 ),
               ),
               child: Text(
-                'Track Order',
+                'Order Status',
                 style: AppTypography.buttonMedium.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,
