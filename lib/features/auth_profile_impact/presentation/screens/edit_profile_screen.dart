@@ -6,6 +6,7 @@ import 'package:savebite/app/theme/app_typography.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/utils/profile_photo_picker.dart';
 
 /// Edit Profile Screen
 ///
@@ -67,7 +68,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isLoading = context.watch<AuthProvider>().isLoading;
+    final auth = context.watch<AuthProvider>();
+    final isLoading = auth.isLoading;
+    final profileUrl = auth.currentUser?.profileImage;
+    final hasPhoto =
+        profileUrl != null && profileUrl.isNotEmpty;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -86,38 +91,50 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           padding: const EdgeInsets.all(AppConstants.paddingL),
           children: [
             Center(
-              child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 60,
-                    backgroundColor: AppColors.primary.withOpacity(0.1),
-                    child: Icon(
-                      Icons.person,
-                      size: 60,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.surface,
-                          width: 3,
+              child: GestureDetector(
+                onTap: isLoading ? null : () => pickAndUploadProfilePhoto(context),
+                child: Stack(
+                  children: [
+                    CircleAvatar(
+                      radius: 60,
+                      backgroundColor: AppColors.primary.withOpacity(0.1),
+                      child: ClipOval(
+                        child: SizedBox(
+                          width: 120,
+                          height: 120,
+                          child: hasPhoto
+                              ? Image.network(
+                                  profileUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      _editProfileAvatarPlaceholder(),
+                                )
+                              : _editProfileAvatarPlaceholder(),
                         ),
                       ),
-                      child: const Icon(
-                        Icons.camera_alt,
-                        size: 20,
-                        color: Colors.white,
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.surface,
+                            width: 3,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          size: 20,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 32),
@@ -197,6 +214,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _editProfileAvatarPlaceholder() {
+    return Container(
+      width: 120,
+      height: 120,
+      color: AppColors.surfaceVariant,
+      alignment: Alignment.center,
+      child: Icon(
+        Icons.person,
+        size: 60,
+        color: AppColors.primary,
       ),
     );
   }

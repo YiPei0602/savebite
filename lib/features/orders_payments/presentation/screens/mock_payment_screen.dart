@@ -307,6 +307,16 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
 
       cartProvider.clearCart();
 
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Order placed successfully'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      });
+
       await showOrderPlacedSuccessDialog(
         context: context,
         orderId: order.id,
@@ -380,7 +390,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
             ),
             const SizedBox(height: AppConstants.paddingM),
             Text(
-              'Enter your card below. Test card: 4242 4242 4242 4242, any future expiry, any CVC.',
+              'Enter your card below.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textSecondary,
               ),

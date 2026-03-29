@@ -24,6 +24,30 @@ class CategoryListingScreen extends StatefulWidget {
 }
 
 class _CategoryListingScreenState extends State<CategoryListingScreen> {
+  bool _merchantMatchesSelectedLocation(
+    MerchantModel? merchant,
+    String selectedLocation,
+  ) {
+    final addr = (merchant?.address ?? '').toLowerCase();
+    final selected = selectedLocation.toLowerCase();
+    if (addr.isEmpty || selected.isEmpty) return false;
+
+    switch (selected) {
+      case 'johor':
+        return addr.contains('johor');
+      case 'kuala lumpur':
+        return addr.contains('kuala lumpur') ||
+            addr.contains('wilayah persekutuan kuala lumpur') ||
+            addr.contains('w.p. kuala lumpur');
+      case 'penang':
+        return addr.contains('penang') || addr.contains('pulau pinang');
+      case 'selangor':
+        return addr.contains('selangor');
+      default:
+        return addr.contains(selected);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -212,6 +236,10 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
               builder: (context, foodProvider, merchantProvider, child) {
                 List<FoodItemModel> filteredItems;
 
+                if (foodProvider.isLoading || merchantProvider.isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
                 final now = DateTime.now();
                 MerchantModel? mFor(String id) {
                   for (final m in merchantProvider.merchants) {
@@ -254,8 +282,17 @@ class _CategoryListingScreenState extends State<CategoryListingScreen> {
                   }).toList();
                 }
 
-                if (foodProvider.isLoading) {
-                  return const Center(child: CircularProgressIndicator());
+                final selectedLocation = foodProvider.selectedLocation;
+                if (selectedLocation != null &&
+                    selectedLocation.trim().isNotEmpty) {
+                  filteredItems = filteredItems
+                      .where(
+                        (item) => _merchantMatchesSelectedLocation(
+                          mFor(item.merchantId),
+                          selectedLocation,
+                        ),
+                      )
+                      .toList();
                 }
 
                 if (filteredItems.isEmpty) {

@@ -51,11 +51,35 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
   Timer? _debounce;
 
   static const List<String> _supportedLocations = <String>[
-    'Johor Bahru',
+    'Johor',
     'Kuala Lumpur',
     'Penang',
     'Selangor',
   ];
+
+  bool _merchantMatchesSelectedLocation(
+    MerchantModel? merchant,
+    String selectedLocation,
+  ) {
+    final addr = (merchant?.address ?? '').toLowerCase();
+    final selected = selectedLocation.toLowerCase();
+    if (addr.isEmpty || selected.isEmpty) return false;
+
+    switch (selected) {
+      case 'johor':
+        return addr.contains('johor');
+      case 'kuala lumpur':
+        return addr.contains('kuala lumpur') ||
+            addr.contains('wilayah persekutuan kuala lumpur') ||
+            addr.contains('w.p. kuala lumpur');
+      case 'penang':
+        return addr.contains('penang') || addr.contains('pulau pinang');
+      case 'selangor':
+        return addr.contains('selangor');
+      default:
+        return addr.contains(selected);
+    }
+  }
 
   @override
   void initState() {
@@ -147,7 +171,7 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                 const SizedBox(height: AppConstants.paddingM),
                 Consumer2<FoodProvider, MerchantProvider>(
                   builder: (context, foodProvider, merchantProvider, _) {
-                    if (foodProvider.isLoading) {
+                    if (foodProvider.isLoading || merchantProvider.isLoading) {
                       return const Padding(
                         padding: EdgeInsets.symmetric(vertical: AppConstants.paddingL),
                         child: _PremiumLoadingState(),
@@ -170,6 +194,7 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                       return null;
                     }
 
+                    final selectedLocation = foodProvider.selectedLocation;
                     final items = foodProvider.displayedFoodItems.toList()
                       ..sort((a, b) {
                         final ua =
@@ -183,7 +208,19 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                         if (ua != ub) return ua.compareTo(ub);
                         return b.createdAt.compareTo(a.createdAt);
                       });
-                    if (items.isEmpty) {
+                    final filteredByLocation = (selectedLocation == null ||
+                            selectedLocation.trim().isEmpty)
+                        ? items
+                        : items
+                            .where(
+                              (item) => _merchantMatchesSelectedLocation(
+                                mFor(item.merchantId),
+                                selectedLocation,
+                              ),
+                            )
+                            .toList(growable: false);
+
+                    if (filteredByLocation.isEmpty) {
                       return _InlineEmptyState(
                         title: 'No recommendations yet',
                         subtitle:
@@ -192,7 +229,8 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                       );
                     }
 
-                    final recommended = items.take(10).toList(growable: false);
+                    final recommended =
+                        filteredByLocation.take(10).toList(growable: false);
                     return Column(
                       children: [
                         for (final item in recommended.take(6)) ...[

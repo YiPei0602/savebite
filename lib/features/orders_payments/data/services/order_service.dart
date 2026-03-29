@@ -162,6 +162,23 @@ class OrderService {
     });
   }
 
+  /// Updates driver location fields (demo / tracking).
+  Future<void> updateDriverLocation({
+    required String orderId,
+    required double driverLatitude,
+    required double driverLongitude,
+  }) async {
+    final docRef = _firestore.collection(_collection).doc(orderId);
+    await docRef.set(
+      <String, dynamic>{
+        'driverLatitude': driverLatitude,
+        'driverLongitude': driverLongitude,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+  }
+
   Future<List<OrderModel>> getOrdersByUser(String userId) async {
     final snap = await _firestore
         .collection(_collection)

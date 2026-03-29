@@ -171,6 +171,33 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  /// Pick image bytes are uploaded to Firebase Storage; Firestore [profileImage] is updated.
+  Future<bool> updateProfileImageFromBytes(
+    Uint8List bytes, {
+    required String fileExtension,
+    String? contentType,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _currentUser = await _authService.updateProfileImageFromBytes(
+        bytes,
+        fileExtension: fileExtension,
+        contentType: contentType,
+      );
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Update impact data
   void updateImpactData(ImpactData newImpactData) {
     if (_currentUser != null) {

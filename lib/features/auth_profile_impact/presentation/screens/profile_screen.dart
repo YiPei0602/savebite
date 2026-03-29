@@ -7,6 +7,7 @@ import 'package:savebite/shared/constants/app_constants.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/utils/profile_photo_picker.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 
@@ -38,7 +39,7 @@ class ProfileScreen extends StatelessWidget {
               : SingleChildScrollView(
                   child: Column(
                     children: [
-                      _buildProfileHeader(user),
+                      _buildProfileHeader(context, user),
                       const SizedBox(height: AppConstants.paddingL),
                       _buildImpactDashboard(user.impactData),
                       const SizedBox(height: AppConstants.paddingL),
@@ -214,7 +215,7 @@ class ProfileScreen extends StatelessWidget {
   }
 
   /// Header: User Profile Picture (Circle Avatar) and Name
-  Widget _buildProfileHeader(UserModel user) {
+  Widget _buildProfileHeader(BuildContext context, UserModel user) {
     final profileImage = user.profileImage;
     final name = user.name;
     final email = user.email;
@@ -224,39 +225,37 @@ class ProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.all(AppConstants.paddingL),
       child: Column(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: AppColors.primary,
-                width: 3,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withOpacity(0.2),
-                  blurRadius: 12,
-                  spreadRadius: 2,
+          GestureDetector(
+            onTap: () => pickAndUploadProfilePhoto(context),
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.primary,
+                  width: 3,
                 ),
-              ],
-            ),
-            child: ClipOval(
-              child: SizedBox(
-                width: 100,
-                height: 100,
-                child: profileImage != null && profileImage.isNotEmpty
-                    ? Image.network(
-                        profileImage,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            _buildProfilePlaceholder(),
-                      )
-                    : Image.asset(
-                        'assets/images/suzy.png',
-                        fit: BoxFit.cover,
-                        alignment: const Alignment(0, -0.3),
-                        errorBuilder: (context, error, stackTrace) =>
-                            _buildProfilePlaceholder(),
-                      ),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.2),
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: profileImage != null && profileImage.isNotEmpty
+                      ? Image.network(
+                          profileImage,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _buildProfilePlaceholder(),
+                        )
+                      : _buildProfilePlaceholder(),
+                ),
               ),
             ),
           ),
@@ -269,6 +268,13 @@ class ProfileScreen extends StatelessWidget {
           Text(
             email,
             style: AppTypography.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: AppConstants.paddingXS),
+          Text(
+            'Tap photo to change',
+            style: AppTypography.bodySmall.copyWith(
               color: AppColors.textSecondary,
             ),
           ),

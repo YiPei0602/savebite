@@ -106,6 +106,7 @@ flutter:
   # Assets
   assets:
     - assets/images/
+    - assets/images/deliveryrider.png
     - assets/icons/
     - assets/logos/
 

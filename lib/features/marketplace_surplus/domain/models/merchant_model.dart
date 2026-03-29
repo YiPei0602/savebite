@@ -58,11 +58,7 @@ class MerchantModel {
 
     return MerchantModel(
       id: id,
-      name: ((json['name'] as String?)?.trim().isNotEmpty == true)
-          ? (json['name'] as String).trim()
-          : ((json['shopName'] as String?)?.trim().isNotEmpty == true)
-              ? (json['shopName'] as String).trim()
-              : 'Your Store',
+      name: _normalizedShopNameFromFirestore(json),
       description: (json['description'] as String?) ?? '',
       imageUrl: (json['imageUrl'] as String?) ?? '',
       address: (json['address'] as String?) ?? '',
@@ -160,5 +156,18 @@ class MerchantModel {
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+}
+
+String _normalizedShopNameFromFirestore(Map<String, dynamic> json) {
+  final fromName = (json['name'] as String?)?.trim();
+  final fromShop = (json['shopName'] as String?)?.trim();
+  final raw = (fromName?.isNotEmpty == true)
+      ? fromName!
+      : (fromShop?.isNotEmpty == true)
+          ? fromShop!
+          : '';
+  if (raw.isEmpty) return '';
+  if (raw.toLowerCase() == 'your store') return '';
+  return raw;
 }
 

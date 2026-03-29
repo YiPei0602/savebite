@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -42,6 +45,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   bool _demoAutoProgressStopped = false;
   GoogleMapController? _mapController;
   String? _lastFittedMapKey;
+  Timer? _driverSimTimer;
+  String? _driverSimKey;
+
+  bool _statusStreamInitialized = false;
+  OrderStatus? _lastKnownStatus;
+
+  /// Cached motorbike bitmap for [MarkerId('driver')] only (shared across screens).
+  static Future<BitmapDescriptor>? _driverMarkerBitmapFuture;
+  BitmapDescriptor? _driverMarkerIcon;
+  bool _driverMarkerKickScheduled = false;
 
   static final bool _demoAutoProgressEnabled =
       kDebugMode &&
@@ -49,6 +62,54 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         'DEMO_AUTO_PROGRESS_ORDERS',
         defaultValue: true,
       );
+
+  static final bool _demoDriverSimEnabled =
+      kDebugMode &&
+      const bool.fromEnvironment(
+        'DEMO_DRIVER_SIMULATION',
+        defaultValue: true,
+      );
+
+  static const String _driverMarkerAssetPath = 'assets/images/deliveryrider.png';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureDriverMarkerBitmap());
+  }
+
+  Future<void> _ensureDriverMarkerBitmap() async {
+    if (_driverMarkerIcon != null || !mounted) return;
+    _driverMarkerBitmapFuture ??= _decodeDriverMarkerBitmapDescriptor();
+    try {
+      final icon = await _driverMarkerBitmapFuture!;
+      if (!mounted) return;
+      setState(() => _driverMarkerIcon = icon);
+    } catch (e, st) {
+      debugPrint('Driver marker bitmap: $e\n$st');
+      _driverMarkerBitmapFuture = null;
+    }
+  }
+
+  /// Decode PNG from Flutter assets and build a platform bitmap (more reliable
+  /// on iOS than [BitmapDescriptor.fromAssetImage] for some PNGs / DPI pairs).
+  static Future<BitmapDescriptor> _decodeDriverMarkerBitmapDescriptor() async {
+    final data = await rootBundle.load(_driverMarkerAssetPath);
+    final bytes = data.buffer.asUint8List();
+    final codec = await ui.instantiateImageCodec(bytes, targetWidth: 128);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    try {
+      final pngBytes =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      if (pngBytes == null) {
+        throw StateError('driver marker: could not encode PNG');
+      }
+      return BitmapDescriptor.fromBytes(pngBytes.buffer.asUint8List());
+    } finally {
+      image.dispose();
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -60,6 +121,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   @override
   void dispose() {
     _demoAutoProgressStopped = true;
+    _driverSimTimer?.cancel();
     super.dispose();
   }
 
@@ -75,6 +137,107 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _demoAutoProgressStopped) return;
       _runDemoAutoProgression();
+    });
+  }
+
+  void _syncDriverSimulation(OrderModel order) {
+    if (!_demoDriverSimEnabled) {
+      _driverSimTimer?.cancel();
+      _driverSimTimer = null;
+      _driverSimKey = null;
+      return;
+    }
+
+    final shouldRun = order.fulfillmentType == FulfillmentType.delivery &&
+        order.orderStatus == OrderStatus.onTheWay &&
+        order.merchantLatitude != null &&
+        order.merchantLongitude != null &&
+        order.deliveryLatitude != null &&
+        order.deliveryLongitude != null;
+
+    if (!shouldRun) {
+      _driverSimTimer?.cancel();
+      _driverSimTimer = null;
+      _driverSimKey = null;
+      return;
+    }
+
+    final key =
+        '${order.id}:${order.orderStatus.name}:${order.merchantLatitude},${order.merchantLongitude}:${order.deliveryLatitude},${order.deliveryLongitude}';
+    if (_driverSimTimer != null && _driverSimKey == key) {
+      return;
+    }
+    _driverSimTimer?.cancel();
+    _driverSimTimer = null;
+    _driverSimKey = key;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _startDriverSimulationTick(order);
+    });
+  }
+
+  void _startDriverSimulationTick(OrderModel initial) {
+    _driverSimTimer?.cancel();
+    final orderProvider = context.read<OrderProvider>();
+
+    final merchantLat = initial.merchantLatitude!;
+    final merchantLng = initial.merchantLongitude!;
+    final destLat = initial.deliveryLatitude!;
+    final destLng = initial.deliveryLongitude!;
+
+    // Initialize driver location at merchant if missing.
+    final initLat = initial.driverLatitude ?? merchantLat;
+    final initLng = initial.driverLongitude ?? merchantLng;
+    orderProvider.updateDriverLocation(
+      orderId: initial.id,
+      driverLatitude: initLat,
+      driverLongitude: initLng,
+    );
+
+    _driverSimTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) async {
+      if (!mounted) return;
+
+      final current = await orderProvider.watchOrderById(initial.id).firstWhere((o) => o != null);
+      if (!mounted) return;
+      final order = current!;
+
+      if (order.fulfillmentType != FulfillmentType.delivery ||
+          order.orderStatus != OrderStatus.onTheWay) {
+        _driverSimTimer?.cancel();
+        _driverSimTimer = null;
+        return;
+      }
+
+      final clat = order.driverLatitude ?? initLat;
+      final clng = order.driverLongitude ?? initLng;
+      final distM = Geolocator.distanceBetween(clat, clng, destLat, destLng);
+
+      // Close enough → snap to destination and complete the order.
+      if (distM <= 35) {
+        await orderProvider.updateDriverLocation(
+          orderId: order.id,
+          driverLatitude: destLat,
+          driverLongitude: destLng,
+        );
+        await orderProvider.updateOrderStatus(order.id, OrderStatus.completed);
+        _driverSimTimer?.cancel();
+        _driverSimTimer = null;
+        return;
+      }
+
+      // Move a small fraction closer each tick (smooth, no big jumps).
+     const stepMeters = 400;
+     final totalDist = Geolocator.distanceBetween(clat, clng, destLat, destLng);
+     final ratio = stepMeters / totalDist;
+     final nlat = clat + (destLat - clat) * ratio;
+     final nlng = clng + (destLng - clng) * ratio;
+
+      await orderProvider.updateDriverLocation(
+        orderId: order.id,
+        driverLatitude: nlat,
+        driverLongitude: nlng,
+      );
     });
   }
 
@@ -116,7 +279,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (fulfillmentType == FulfillmentType.delivery &&
         current == OrderStatus.onTheWay &&
         next == OrderStatus.completed) {
-      final seconds = 6 + rng.nextInt(3); // 6, 7, 8
+      final seconds = 30 + rng.nextInt(3); // 6, 7, 8
       return Duration(seconds: seconds);
     }
     if (current == OrderStatus.pending && next == OrderStatus.confirmed) {
@@ -129,7 +292,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       return const Duration(seconds: 5);
     }
     if (current == OrderStatus.ready && next == OrderStatus.onTheWay) {
-      return const Duration(seconds: 2);
+      return const Duration(seconds: 5);
     }
     if (current == OrderStatus.ready && next == OrderStatus.completed) {
       return const Duration(seconds: 2);
@@ -221,6 +384,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildDeliveryMap(OrderModel order) {
+    if (_driverMarkerIcon == null && !_driverMarkerKickScheduled) {
+      _driverMarkerKickScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _driverMarkerKickScheduled = false;
+        if (mounted) _ensureDriverMarkerBitmap();
+      });
+    }
+
     final merchant = LatLng(order.merchantLatitude!, order.merchantLongitude!);
     final delivery = LatLng(order.deliveryLatitude!, order.deliveryLongitude!);
 
@@ -230,6 +401,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         position: merchant,
         infoWindow: const InfoWindow(title: 'Merchant'),
       ),
+      if (order.driverLatitude != null &&
+          order.driverLongitude != null &&
+          _driverMarkerIcon != null)
+        Marker(
+          markerId: const MarkerId('driver'),
+          position: LatLng(order.driverLatitude!, order.driverLongitude!),
+          icon: _driverMarkerIcon!,
+          anchor: const Offset(0.5, 0.5),
+          infoWindow: const InfoWindow(title: 'Driver'),
+        ),
       Marker(
         markerId: const MarkerId('delivery'),
         position: delivery,
@@ -397,20 +578,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
               final orderProvider = context.read<OrderProvider>();
               Navigator.pop(context);
               final ok = await orderProvider.cancelOrder(widget.orderId);
               if (!mounted) return;
-              if (ok) {
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text('Order cancelled'),
-                    backgroundColor: AppColors.error,
-                  ),
-                );
-              } else {
-                messenger.showSnackBar(
+              if (!ok) {
+                ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
                       orderProvider.errorMessage ?? 'Could not cancel order',
@@ -427,6 +600,40 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         ],
       ),
     );
+  }
+
+  /// In-app status toasts (no FCM). Updates [_lastKnownStatus] synchronously so
+  /// identical stream data does not re-trigger. SnackBars only in [addPostFrameCallback].
+  void _handleOrderStatusNotifications(OrderModel order) {
+    if (!_statusStreamInitialized) {
+      _lastKnownStatus = order.orderStatus;
+      _statusStreamInitialized = true;
+      return;
+    }
+    if (order.orderStatus == _lastKnownStatus) return;
+
+    final prev = _lastKnownStatus!;
+    final next = order.orderStatus;
+    _lastKnownStatus = next;
+
+    String? message;
+    if (next == OrderStatus.confirmed && prev == OrderStatus.pending) {
+      message = 'Order confirmed';
+    } else if (next == OrderStatus.cancelled && prev != OrderStatus.cancelled) {
+      message = 'Order cancelled';
+    }
+    final msg = message;
+    if (msg == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
   }
 
   @override
@@ -499,7 +706,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           );
         }
 
+        _handleOrderStatusNotifications(order);
         _maybeStartDemoAutoProgression(order);
+        _syncDriverSimulation(order);
 
         return Scaffold(
           backgroundColor: AppColors.background,
@@ -533,10 +742,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   Widget _buildStatusHeroCard(OrderModel order) {
     final s = order.orderStatus;
-    final title = _statusTitle(s, order.fulfillmentType);
     final description = _statusDescription(s, order.fulfillmentType);
     final style = _statusStyle(s, order.fulfillmentType);
-    final etaLine = _deliveryEtaLine(order);
+    final isDeliveryOnTheWay = order.fulfillmentType == FulfillmentType.delivery &&
+        order.orderStatus == OrderStatus.onTheWay;
+    final deliveryMetrics =
+        isDeliveryOnTheWay ? _computeDeliveryDistanceEta(order) : null;
+    final etaLine = isDeliveryOnTheWay ? null : _deliveryEtaLine(order);
+    final title = _statusTitle(s, order.fulfillmentType);
 
     final id = order.id.isNotEmpty ? order.id : widget.orderId;
     final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
@@ -575,29 +788,54 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: AppTypography.h3.copyWith(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w800,
+                if (isDeliveryOnTheWay && deliveryMetrics != null) ...[
+                  Text(
+                    '${deliveryMetrics.mins} mins',
+                    style: AppTypography.h3.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                ),
-                const SizedBox(height: AppConstants.paddingXS),
-                Text(
-                  description,
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
+                  const SizedBox(height: AppConstants.paddingXS),
+                  Text(
+                    description,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
                   ),
-                ),
-                if (etaLine != null) ...[
                   const SizedBox(height: AppConstants.paddingS),
                   Text(
-                    etaLine,
+                    '${deliveryMetrics.kmDisplay} km away',
                     style: AppTypography.bodySmall.copyWith(
                       color: AppColors.textSecondary,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                ] else ...[
+                  Text(
+                    title,
+                    style: AppTypography.h3.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.paddingXS),
+                  Text(
+                    description,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  if (etaLine != null) ...[
+                    const SizedBox(height: AppConstants.paddingS),
+                    Text(
+                      etaLine,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),
@@ -630,36 +868,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   /// - If `onTheWay`: compute driver → delivery (fallback to merchant if driver missing).
   /// - Else: compute merchant → delivery.
   /// - Pickup orders: no ETA/distance.
+  /// - Not used for delivery + [onTheWay] hero card (split mins / km there).
   String? _deliveryEtaLine(OrderModel order) {
-    if (order.fulfillmentType != FulfillmentType.delivery) return null;
-    if (order.orderStatus == OrderStatus.cancelled ||
-        order.orderStatus == OrderStatus.completed) {
-      return null;
-    }
-    if (order.orderStatus == OrderStatus.pending) return null;
-
-    final dl = order.deliveryLatitude;
-    final dlg = order.deliveryLongitude;
-    if (dl == null || dlg == null) return null;
-
-    double? fromLat;
-    double? fromLng;
-    if (order.orderStatus == OrderStatus.onTheWay) {
-      fromLat = order.driverLatitude ?? order.merchantLatitude;
-      fromLng = order.driverLongitude ?? order.merchantLongitude;
-    } else {
-      fromLat = order.merchantLatitude;
-      fromLng = order.merchantLongitude;
-    }
-    if (fromLat == null || fromLng == null) return null;
-
-    final meters = Geolocator.distanceBetween(fromLat, fromLng, dl, dlg);
-    final km = meters / 1000.0;
-    // Heuristic speed: 30 km/h.
-    const speedKmh = 30.0;
-    final mins = (km / speedKmh * 60.0).ceil().clamp(1, 9999);
-    final kmText = km < 0.05 ? '0.1' : km.toStringAsFixed(1);
-    return 'Arriving in $mins mins • $kmText km';
+    final r = _computeDeliveryDistanceEta(order);
+    if (r == null) return null;
+    return 'Arriving in ${r.mins} mins • ${r.kmDisplay} km';
   }
 
   Widget _buildProgressCard(OrderModel order) {
@@ -924,6 +1137,39 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       ),
     );
   }
+}
+
+/// Shared delivery distance + ETA (30 km/h heuristic). Same rules as legacy
+/// `"Arriving in … • … km"` line.
+({int mins, String kmDisplay})? _computeDeliveryDistanceEta(OrderModel order) {
+  if (order.fulfillmentType != FulfillmentType.delivery) return null;
+  if (order.orderStatus == OrderStatus.cancelled ||
+      order.orderStatus == OrderStatus.completed) {
+    return null;
+  }
+  if (order.orderStatus == OrderStatus.pending) return null;
+
+  final dl = order.deliveryLatitude;
+  final dlg = order.deliveryLongitude;
+  if (dl == null || dlg == null) return null;
+
+  double? fromLat;
+  double? fromLng;
+  if (order.orderStatus == OrderStatus.onTheWay) {
+    fromLat = order.driverLatitude ?? order.merchantLatitude;
+    fromLng = order.driverLongitude ?? order.merchantLongitude;
+  } else {
+    fromLat = order.merchantLatitude;
+    fromLng = order.merchantLongitude;
+  }
+  if (fromLat == null || fromLng == null) return null;
+
+  final meters = Geolocator.distanceBetween(fromLat, fromLng, dl, dlg);
+  final km = meters / 1000.0;
+  const speedKmh = 30.0;
+  final mins = (km / speedKmh * 60.0).ceil().clamp(1, 9999);
+  final kmDisplay = km < 0.05 ? '0.1' : km.toStringAsFixed(1);
+  return (mins: mins, kmDisplay: kmDisplay);
 }
 
 String _statusTitle(OrderStatus s, FulfillmentType type) {

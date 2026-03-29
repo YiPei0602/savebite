@@ -23,6 +23,10 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
   final _customerLabelCache = <String, String>{};
   final _customerInFlight = <String, Future<String>>{};
 
+  bool _merchantOrdersInitialized = false;
+  final Set<String> _seenOrderIds = <String>{};
+  final Map<String, OrderStatus> _lastStatusByOrderId = <String, OrderStatus>{};
+
   static const _activeStatuses = <OrderStatus>[
     OrderStatus.pending,
     OrderStatus.confirmed,
@@ -92,6 +96,47 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
       case OrderStatus.onTheWay:
         return 'On the way';
     }
+  }
+
+  void _handleMerchantOrdersSnapshot(List<OrderModel> orders) {
+    if (!_merchantOrdersInitialized) {
+      _seenOrderIds
+        ..clear()
+        ..addAll(orders.map((o) => o.id));
+      _lastStatusByOrderId
+        ..clear()
+        ..addEntries(orders.map((o) => MapEntry(o.id, o.orderStatus)));
+      _merchantOrdersInitialized = true;
+      return;
+    }
+
+    for (final o in orders) {
+      if (!_seenOrderIds.contains(o.id)) {
+        _seenOrderIds.add(o.id);
+        _lastStatusByOrderId[o.id] = o.orderStatus;
+        _scheduleMerchantSnackBar('New order received');
+      } else {
+        final prev = _lastStatusByOrderId[o.id];
+        if (prev != null &&
+            prev != OrderStatus.cancelled &&
+            o.orderStatus == OrderStatus.cancelled) {
+          _scheduleMerchantSnackBar('Order cancelled');
+        }
+        _lastStatusByOrderId[o.id] = o.orderStatus;
+      }
+    }
+  }
+
+  void _scheduleMerchantSnackBar(String message) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
   }
 
   Color _statusColor(OrderStatus status) {
@@ -166,6 +211,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
                       }
 
                       final orders = snapshot.data ?? const <OrderModel>[];
+                      _handleMerchantOrdersSnapshot(orders);
                       final active = orders
                           .where((o) => _activeStatuses.contains(o.orderStatus))
                           .toList(growable: false);

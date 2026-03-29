@@ -31,6 +31,8 @@ class _SignupScreenState extends State<SignupScreen> {
   final _confirmPasswordController = TextEditingController();
   String _selectedRole = AppConstants.roleConsumer;
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void didChangeDependencies() {
@@ -331,7 +333,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                 TextFormField(
                   controller: _passwordController,
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   decoration: InputDecoration(
                     labelText: 'Password',
                     hintText: 'Create a password',
@@ -339,7 +341,18 @@ class _SignupScreenState extends State<SignupScreen> {
                       color: const Color(0xFF60646C),
                     ),
                     prefixIcon: const Icon(Icons.lock_outlined),
-                    suffixIcon: const Icon(Icons.visibility_off_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppConstants.radiusM),
                       borderSide: const BorderSide(color: AppColors.border),
@@ -371,7 +384,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                 TextFormField(
                   controller: _confirmPasswordController,
-                  obscureText: true,
+                  obscureText: _obscureConfirmPassword,
                   decoration: InputDecoration(
                     labelText: 'Confirm Password',
                     hintText: 'Re-enter your password',
@@ -379,7 +392,18 @@ class _SignupScreenState extends State<SignupScreen> {
                       color: const Color(0xFF60646C),
                     ),
                     prefixIcon: const Icon(Icons.lock_outlined),
-                    suffixIcon: const Icon(Icons.visibility_off_outlined),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscureConfirmPassword
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscureConfirmPassword = !_obscureConfirmPassword;
+                        });
+                      },
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(AppConstants.radiusM),
                       borderSide: const BorderSide(color: AppColors.border),

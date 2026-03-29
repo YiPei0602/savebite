@@ -31,22 +31,6 @@ Future<void> showOrderPlacedSuccessDialog({
           ),
           const SizedBox(height: AppConstants.paddingL),
           Text(
-            'Order Placed!',
-            style: AppTypography.h3.copyWith(
-              color: const Color(0xFF212121),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: AppConstants.paddingS),
-          Text(
-            'Your order has been successfully placed.',
-            style: AppTypography.bodyMedium.copyWith(
-              color: const Color(0xFF616161),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: AppConstants.paddingXS),
-          Text(
             'Order #$orderId',
             style: AppTypography.bodySmall.copyWith(
               color: const Color(0xFF9E9E9E),

@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:savebite/shared/constants/app_constants.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
 import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
@@ -268,6 +271,17 @@ class AuthService {
       final updateData = <String, dynamic>{
         'updatedAt': FieldValue.serverTimestamp(),
       };
+      String? newFirst;
+      String? newLast;
+      if (name != null) {
+        final trimmed = name.trim();
+        final parts =
+            trimmed.isEmpty ? <String>[] : trimmed.split(RegExp(r'\s+'));
+        newFirst = parts.isNotEmpty ? parts.first : '';
+        newLast = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+        updateData['firstName'] = newFirst;
+        updateData['lastName'] = newLast;
+      }
       if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber.trim();
       if (profileImage != null) updateData['profileImage'] = profileImage;
 
@@ -275,6 +289,8 @@ class AuthService {
 
       if (_currentUser != null) {
         _currentUser = _currentUser!.copyWith(
+          firstName: newFirst,
+          lastName: newLast,
           phoneNumber: phoneNumber ?? _currentUser!.phoneNumber,
           profileImage: profileImage ?? _currentUser!.profileImage,
           updatedAt: DateTime.now(),
@@ -285,6 +301,50 @@ class AuthService {
     } catch (e) {
       if (e is Exception) rethrow;
       throw Exception('Profile update failed: ${e.toString()}');
+    }
+  }
+
+  /// Uploads a new profile image to Storage, then updates Firestore + local cache.
+  Future<UserModel> updateProfileImageFromBytes(
+    Uint8List bytes, {
+    required String fileExtension,
+    String? contentType,
+  }) async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) {
+      throw Exception('No user logged in');
+    }
+    final ext = fileExtension.startsWith('.') ? fileExtension : '.$fileExtension';
+    final safeExt = _profileImageSafeExtension(ext);
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child(
+          'users/${firebaseUser.uid}/profile_${DateTime.now().millisecondsSinceEpoch}$safeExt',
+        );
+    final ct = contentType ?? _profileImageContentTypeFromExt(safeExt);
+    await ref.putData(bytes, SettableMetadata(contentType: ct));
+    final url = await ref.getDownloadURL();
+    return updateProfile(profileImage: url);
+  }
+
+  static String _profileImageSafeExtension(String ext) {
+    final lower = ext.toLowerCase();
+    if (lower.endsWith('.png')) return '.png';
+    if (lower.endsWith('.webp')) return '.webp';
+    if (lower.endsWith('.jpeg')) return '.jpeg';
+    return '.jpg';
+  }
+
+  static String _profileImageContentTypeFromExt(String ext) {
+    switch (ext.toLowerCase()) {
+      case '.png':
+        return 'image/png';
+      case '.webp':
+        return 'image/webp';
+      case '.jpeg':
+      case '.jpg':
+      default:
+        return 'image/jpeg';
     }
   }
 

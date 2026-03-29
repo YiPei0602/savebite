@@ -202,6 +202,23 @@ class OrderProvider with ChangeNotifier {
     return updateOrderStatus(orderId, OrderStatus.cancelled);
   }
 
+  Future<void> updateDriverLocation({
+    required String orderId,
+    required double driverLatitude,
+    required double driverLongitude,
+  }) async {
+    try {
+      await _orderService.updateDriverLocation(
+        orderId: orderId,
+        driverLatitude: driverLatitude,
+        driverLongitude: driverLongitude,
+      );
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
   /// Filter orders by status
   List<OrderModel> getOrdersByStatus(OrderStatus status) {
     return _orders.where((order) => order.orderStatus == status).toList();

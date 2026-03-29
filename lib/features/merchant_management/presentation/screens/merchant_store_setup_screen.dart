@@ -364,7 +364,9 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
         if (!_didInit && snapshot.connectionState != ConnectionState.waiting) {
           _didInit = true;
           if (existing != null) {
-            _nameController.text = existing.name;
+            final n = existing.name.trim();
+            _nameController.text =
+                (n.isEmpty || n.toLowerCase() == 'your store') ? '' : existing.name;
             _addressController.text = existing.address;
             _shopLat = existing.latitude;
             _shopLng = existing.longitude;
@@ -435,7 +437,7 @@ class _MerchantStoreSetupScreenState extends State<MerchantStoreSetupScreen> {
                       controller: _nameController,
                       decoration: _decoration(
                         'Shop Name',
-                        'e.g., Marcus Bakery',
+                        'Your shop name',
                         Icons.storefront_outlined,
                       ),
                       validator: (v) => (v == null || v.trim().isEmpty)

@@ -5,13 +5,20 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Food listing images live under: food_items/{merchantUid}/{itemId}.{ext}
-    // Read: any signed-in user
-    // Write: only the owner (merchantUid must match auth uid)
+    // Listing images: food_items/{merchantUid}/{file}
     match /food_items/{merchantUid}/{allPaths=**} {
       allow read: if signedIn();
       allow write: if signedIn() && request.auth.uid == merchantUid;
     }
+
+    // Profile photos: users/{uid}/... (written by [AuthService.updateProfileImageFromBytes])
+    match /users/{userId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Paths that do not match the rules above are denied by default (no catch‑all:
+    // a global `allow read, write: if false` also matches users/ and food_items/ and
+    // would block every request — Firebase ANDs all matching rules).
   }
 }
-
