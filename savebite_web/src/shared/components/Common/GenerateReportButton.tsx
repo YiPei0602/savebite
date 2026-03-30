@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { FileText, Download, X } from 'lucide-react'
 import jsPDF from 'jspdf'
 import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns'
-import { mockUsers, mockDonations, User, Donation } from '@/shared/data/mockData'
 
 interface GenerateReportButtonProps {
   pageContext: 'dashboard' | 'users' | 'donations' | 'profile'
@@ -80,6 +79,7 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
       dashboard: 'SaveBite System Report',
       users: 'SaveBite User Management Report',
       donations: 'SaveBite Donation Report',
+      profile: 'SaveBite Report',
     }
     
     doc.setFontSize(18)
@@ -105,9 +105,9 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     if (pageContext === 'dashboard') {
       generateDashboardReport(doc, yPos)
     } else if (pageContext === 'users') {
-      generateUsersReport(doc, yPos)
+      generateUsersReport(doc, yPos, Array.isArray(data) ? data : [])
     } else if (pageContext === 'donations') {
-      generateDonationsReport(doc, yPos)
+      generateDonationsReport(doc, yPos, Array.isArray(data) ? data : [])
     }
     
     // Save PDF
@@ -123,10 +123,10 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
   const generateDashboardReport = (doc: jsPDF, startY: number) => {
     let yPos = startY
     doc.setFontSize(10)
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('System Overview Statistics', 14, yPos)
     yPos += 10
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
 
     if (dashboardMetrics.totalConsumers && data) {
       doc.text(`Total Consumers: ${data.totalConsumers || 0}`, 14, yPos)
@@ -147,10 +147,10 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
 
     if (dashboardMetrics.ordersTrend || dashboardMetrics.donationTrend) {
       yPos += 5
-      doc.setFont(undefined, 'bold')
+      doc.setFont('helvetica', 'bold')
       doc.text('Trends', 14, yPos)
       yPos += 7
-      doc.setFont(undefined, 'normal')
+      doc.setFont('helvetica', 'normal')
       if (dashboardMetrics.ordersTrend) {
         doc.text('Orders Trend: Included in report', 14, yPos)
         yPos += 7
@@ -162,15 +162,15 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     }
   }
 
-  const generateUsersReport = (doc: jsPDF, startY: number) => {
+  const generateUsersReport = (doc: jsPDF, startY: number, usersInput: any[]) => {
     let yPos = startY
     doc.setFontSize(10)
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('User Account Report', 14, yPos)
     yPos += 10
 
     // Apply filters
-    let filteredUsers = mockUsers
+    let filteredUsers = usersInput
 
     if (userTypeFilter !== 'all') {
       filteredUsers = filteredUsers.filter(u => u.role === userTypeFilter)
@@ -190,7 +190,7 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
       })
     }
 
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
     doc.text(`Total Users: ${filteredUsers.length}`, 14, yPos)
     yPos += 10
 
@@ -205,12 +205,12 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     }
 
     yPos += 5
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('User Details', 14, yPos)
     yPos += 7
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
 
-    filteredUsers.slice(0, 50).forEach((user: User) => {
+    filteredUsers.slice(0, 50).forEach((user: any) => {
       if (yPos > 280) {
         doc.addPage()
         yPos = 20
@@ -222,22 +222,28 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     })
   }
 
-  const generateDonationsReport = (doc: jsPDF, startY: number) => {
+  const generateDonationsReport = (
+    doc: jsPDF,
+    startY: number,
+    donationsInput: any[],
+  ) => {
     let yPos = startY
     doc.setFontSize(10)
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('Donation Delivery Report', 14, yPos)
     yPos += 10
 
     // Apply filters
-    let filteredDonations = mockDonations.filter(d => d.status === 'completed')
+    let filteredDonations = donationsInput.filter(d => d.status === 'completed')
 
     if (donationMerchantFilter !== 'all') {
-      filteredDonations = filteredDonations.filter(d => d.merchantId === donationMerchantFilter)
+      filteredDonations = filteredDonations.filter(
+        (d) => d.merchantName === donationMerchantFilter,
+      )
     }
 
     if (donationNGOFilter !== 'all') {
-      filteredDonations = filteredDonations.filter(d => d.ngoId === donationNGOFilter)
+      filteredDonations = filteredDonations.filter((d) => d.ngoName === donationNGOFilter)
     }
 
     // Filter by date range (deliveryDate)
@@ -250,19 +256,19 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
       })
     }
 
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
     doc.text(`Total Donations: ${filteredDonations.length}`, 14, yPos)
     yPos += 7
     const totalItems = filteredDonations.reduce((sum, d) => sum + (d.quantity || 0), 0)
     doc.text(`Total Items: ${totalItems}`, 14, yPos)
     yPos += 10
 
-    doc.setFont(undefined, 'bold')
+    doc.setFont('helvetica', 'bold')
     doc.text('Donation Details', 14, yPos)
     yPos += 7
-    doc.setFont(undefined, 'normal')
+    doc.setFont('helvetica', 'normal')
 
-    filteredDonations.slice(0, 50).forEach((donation: Donation) => {
+    filteredDonations.slice(0, 50).forEach((donation: any) => {
       if (yPos > 280) {
         doc.addPage()
         yPos = 20
@@ -283,9 +289,15 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     return null
   }
 
-  // Get unique merchants and NGOs for filters
-  const uniqueMerchants = Array.from(new Set(mockDonations.map(d => ({ id: d.merchantId, name: d.merchantName }))))
-  const uniqueNGOs = Array.from(new Set(mockDonations.map(d => ({ id: d.ngoId, name: d.ngoName }))))
+  // Get unique merchants and NGOs for filters (from provided page data)
+  const donationData: any[] =
+    pageContext === 'donations' && Array.isArray(data) ? data : []
+  const uniqueMerchants = Array.from(
+    new Set(donationData.map((d) => d.merchantName).filter(Boolean)),
+  )
+  const uniqueNGOs = Array.from(
+    new Set(donationData.map((d) => d.ngoName).filter(Boolean)),
+  )
 
   const modalTitles = {
     dashboard: 'Generate System Report',
@@ -460,8 +472,8 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
                     >
                       <option value="all">All Merchants</option>
                       {uniqueMerchants.map((merchant) => (
-                        <option key={merchant.id} value={merchant.id}>
-                          {merchant.name}
+                        <option key={merchant} value={merchant}>
+                          {merchant}
                         </option>
                       ))}
                     </select>
@@ -478,8 +490,8 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
                     >
                       <option value="all">All NGOs</option>
                       {uniqueNGOs.map((ngo) => (
-                        <option key={ngo.id} value={ngo.id}>
-                          {ngo.name}
+                        <option key={ngo} value={ngo}>
+                          {ngo}
                         </option>
                       ))}
                     </select>

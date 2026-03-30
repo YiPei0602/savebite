@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Lock, Check, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 import { useAuthStore } from '@/core/store/authStore'
+import { AdminFirebaseLoginButton } from '@/shared/components/Common/AdminFirebaseLoginButton'
 
 const colors = {
   primary: '#00615F',
@@ -132,9 +133,12 @@ export function LoginPage() {
 
       {/* Right Side - Login Form Section (1/2 width) */}
       <div
-        className="w-1/2 flex flex-col justify-center items-center p-6 md:p-12 min-h-screen"
+        className="w-1/2 flex flex-col justify-center items-center p-6 md:p-12 min-h-screen relative"
         style={{ backgroundColor: colors.background }}
       >
+        <div className="absolute top-4 right-4 z-10">
+          <AdminFirebaseLoginButton />
+        </div>
         {/* Login Card with Shadow and Border */}
         <div className="w-full max-w-md bg-white rounded-lg shadow-lg border border-gray-200 p-8 flex flex-col gap-6">
           {/* Logo - Using logo_round.png (already round, no shape manipulation) */}

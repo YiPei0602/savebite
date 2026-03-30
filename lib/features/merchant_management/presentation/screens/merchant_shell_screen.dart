@@ -29,6 +29,14 @@ class _MerchantShellScreenState extends State<MerchantShellScreen> {
   late int _currentIndex = widget.initialTabIndex.clamp(0, 2);
   Timer? _merchantOpenSyncTimer;
 
+  @override
+  void didUpdateWidget(MerchantShellScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialTabIndex != widget.initialTabIndex) {
+      _currentIndex = widget.initialTabIndex.clamp(0, 2);
+    }
+  }
+
   /// Same tab order and widgets as consumer [HomeScreen], except Home is merchant dashboard.
   final List<Widget> _screens = const [
     MerchantDashboardScreen(),

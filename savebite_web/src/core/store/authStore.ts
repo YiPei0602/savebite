@@ -23,7 +23,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       token: null,
       isAuthenticated: false,
-      login: async (email: string, password: string) => {
+      login: async (email: string, _password: string) => {
         // TODO: Implement actual login API call
         // For now, this is a placeholder
         const mockUser: AdminUser = {

@@ -419,7 +419,7 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
                                 child: OutlinedButton(
                                   onPressed: _isLoading
                                       ? null
-                                      : () => context.go('/merchant-profile'),
+                                      : () => context.goNamed('merchant-profile'),
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: AppColors.primary,
                                     side: const BorderSide(color: AppColors.primary),

@@ -1,19 +1,17 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Users, Store, Building2, ShoppingCart, ChevronDown } from 'lucide-react'
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { mockUsers, mockDonations, mockOrders } from '@/shared/data/mockData'
 import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns'
 import { GenerateReportButton } from '@/shared/components/Common/GenerateReportButton'
+import type { OrderRecord, UserRecord } from '@/shared/types/models'
+import { getUsers } from '@/features/users/api/usersApi'
+import { getOrders } from '@/features/orders/api/ordersApi'
 
 type TimeRange = '1day' | '1week' | '1month' | '3months' | '1year'
 
-const timeRangeOptions = [
-  { value: '1day', label: '1 Day' },
-  { value: '1week', label: '1 Week' },
-  { value: '1month', label: '1 Month' },
-  { value: '3months', label: '3 Months' },
-  { value: '1year', label: '1 Year' },
-]
+function isCompletedOrder(o: OrderRecord): boolean {
+  return o.orderStatus?.toLowerCase() === 'completed'
+}
 
 export function DashboardPage() {
   const [ordersTimeRange, setOrdersTimeRange] = useState<TimeRange>('1week')
@@ -22,8 +20,11 @@ export function DashboardPage() {
   const [donationDropdownOpen, setDonationDropdownOpen] = useState(false)
   const ordersDropdownRef = useRef<HTMLDivElement>(null)
   const donationDropdownRef = useRef<HTMLDivElement>(null)
+  const [users, setUsers] = useState<UserRecord[]>([])
+  const [orders, setOrders] = useState<OrderRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (ordersDropdownRef.current && !ordersDropdownRef.current.contains(event.target as Node)) {
@@ -40,12 +41,34 @@ export function DashboardPage() {
     }
   }, [])
 
-  // Calculate statistics
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const [u, ord] = await Promise.all([getUsers(), getOrders()])
+        if (!alive) return
+        setUsers(u)
+        setOrders(ord)
+      } catch (e) {
+        if (!alive) return
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!alive) return
+        setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const stats = useMemo(() => {
-    const totalConsumers = mockUsers.filter(u => u.role === 'consumer').length
-    const totalMerchants = mockUsers.filter(u => u.role === 'merchant').length
-    const totalNGOs = new Set(mockDonations.map(d => d.ngoId)).size
-    const totalOrders = mockOrders.filter(o => o.status === 'completed').length
+    const totalConsumers = users.filter((u) => u.role === 'consumer').length
+    const totalMerchants = users.filter((u) => u.role === 'merchant').length
+    const totalNGOs = 0
+    const totalOrders = orders.filter(isCompletedOrder).length
 
     return {
       totalConsumers,
@@ -53,112 +76,61 @@ export function DashboardPage() {
       totalNGOs,
       totalOrders,
     }
-  }, [])
+  }, [orders, users])
 
-  // Generate Orders Trend Data based on time range
+  function getRangeParams(range: TimeRange) {
+    const now = new Date()
+    switch (range) {
+      case '1day':
+        return { startDate: subDays(now, 1), intervalDays: 1 / 24, points: 24, label: 'HH:mm' as const }
+      case '1week':
+        return { startDate: subWeeks(now, 1), intervalDays: 1, points: 7, label: 'MMM dd' as const }
+      case '1month':
+        return { startDate: subMonths(now, 1), intervalDays: 1, points: 30, label: 'MMM dd' as const }
+      case '3months':
+        return { startDate: subMonths(now, 3), intervalDays: 7, points: 12, label: 'MMM dd' as const }
+      case '1year':
+        return { startDate: subYears(now, 1), intervalDays: 30, points: 12, label: 'MMM' as const }
+    }
+  }
+
+  function buildTrendData(
+    range: TimeRange,
+    items: Array<{ ts: string }>,
+    valueKey: 'orders' | 'donations',
+  ) {
+    const { startDate, intervalDays, points, label } = getRangeParams(range)
+    const stepMs = intervalDays * 24 * 60 * 60 * 1000
+    const buckets = Array.from({ length: points }, (_, i) => new Date(startDate.getTime() + i * stepMs))
+    const counts = new Array(points).fill(0) as number[]
+
+    for (const it of items) {
+      if (!it.ts) continue
+      const dt = new Date(it.ts)
+      if (Number.isNaN(dt.getTime())) continue
+      const idx = Math.floor((dt.getTime() - startDate.getTime()) / stepMs)
+      if (idx >= 0 && idx < points) counts[idx] += 1
+    }
+
+    return buckets.map((d, i) => ({
+      date: format(d, label),
+      [valueKey]: counts[i],
+    }))
+  }
+
   const ordersTrendData = useMemo(() => {
-    const now = new Date()
-    let startDate: Date
-    let intervalDays: number
-    let dataPoints: number
+    const completedWithPaidAt = orders.filter(
+      (o) => isCompletedOrder(o) && Boolean(o.paidAt) && !Number.isNaN(new Date(o.paidAt).getTime()),
+    )
+    return buildTrendData(
+      ordersTimeRange,
+      completedWithPaidAt.map((o) => ({ ts: o.paidAt })),
+      'orders',
+    )
+  }, [orders, ordersTimeRange])
 
-    switch (ordersTimeRange) {
-      case '1day':
-        startDate = subDays(now, 1)
-        intervalDays = 1 / 24 // Hourly
-        dataPoints = 24
-        break
-      case '1week':
-        startDate = subWeeks(now, 1)
-        intervalDays = 1 // Daily
-        dataPoints = 7
-        break
-      case '1month':
-        startDate = subMonths(now, 1)
-        intervalDays = 1 // Daily
-        dataPoints = 30
-        break
-      case '3months':
-        startDate = subMonths(now, 3)
-        intervalDays = 7 // Weekly
-        dataPoints = 12
-        break
-      case '1year':
-        startDate = subYears(now, 1)
-        intervalDays = 30 // Monthly
-        dataPoints = 12
-        break
-    }
-
-    const data = []
-    for (let i = dataPoints - 1; i >= 0; i--) {
-      const date = new Date(startDate.getTime() + i * intervalDays * 24 * 60 * 60 * 1000)
-      const dateStr = format(date, ordersTimeRange === '1day' ? 'HH:mm' : ordersTimeRange === '1year' ? 'MMM' : 'MMM dd')
-      
-      // Mock data: simulate orders count
-      const baseCount = Math.floor(Math.random() * 10) + 5
-      const orders = Math.floor(baseCount + Math.sin(i) * 3)
-      
-      data.push({
-        date: dateStr,
-        orders,
-      })
-    }
-
-    return data
-  }, [ordersTimeRange])
-
-  // Generate Donation Trend Data based on time range
   const donationTrendData = useMemo(() => {
-    const now = new Date()
-    let startDate: Date
-    let intervalDays: number
-    let dataPoints: number
-
-    switch (donationTimeRange) {
-      case '1day':
-        startDate = subDays(now, 1)
-        intervalDays = 1 / 24 // Hourly
-        dataPoints = 24
-        break
-      case '1week':
-        startDate = subWeeks(now, 1)
-        intervalDays = 1 // Daily
-        dataPoints = 7
-        break
-      case '1month':
-        startDate = subMonths(now, 1)
-        intervalDays = 1 // Daily
-        dataPoints = 30
-        break
-      case '3months':
-        startDate = subMonths(now, 3)
-        intervalDays = 7 // Weekly
-        dataPoints = 12
-        break
-      case '1year':
-        startDate = subYears(now, 1)
-        intervalDays = 30 // Monthly
-        dataPoints = 12
-        break
-    }
-
-    const data = []
-    for (let i = dataPoints - 1; i >= 0; i--) {
-      const date = new Date(startDate.getTime() + i * intervalDays * 24 * 60 * 60 * 1000)
-      const dateStr = format(date, donationTimeRange === '1day' ? 'HH:mm' : donationTimeRange === '1year' ? 'MMM' : 'MMM dd')
-      
-      // Mock data: simulate donations count
-      const baseCount = Math.floor(Math.random() * 5) + 2
-      const donations = Math.floor(baseCount + Math.cos(i) * 2)
-      
-      data.push({
-        date: dateStr,
-        donations,
-      })
-    }
-
-    return data
+    return buildTrendData(donationTimeRange, [], 'donations')
   }, [donationTimeRange])
 
   const statCards = [
@@ -167,34 +139,40 @@ export function DashboardPage() {
       value: stats.totalConsumers,
       icon: Users,
       color: 'bg-blue-500',
+      footnote: undefined as string | undefined,
     },
     {
       title: 'Total Merchants',
       value: stats.totalMerchants,
       icon: Store,
       color: 'bg-green-500',
+      footnote: undefined as string | undefined,
     },
     {
       title: 'Total NGOs Served',
       value: stats.totalNGOs,
       icon: Building2,
       color: 'bg-purple-500',
+      footnote: 'Donation/NGO data not connected yet',
     },
     {
       title: 'Total Orders Completed',
       value: stats.totalOrders,
       icon: ShoppingCart,
       color: 'bg-orange-500',
+      footnote: undefined as string | undefined,
     },
   ]
 
-  // Dashboard data for report generation
-  const dashboardData = useMemo(() => ({
-    totalConsumers: stats.totalConsumers,
-    totalMerchants: stats.totalMerchants,
-    totalNGOs: stats.totalNGOs,
-    totalOrders: stats.totalOrders,
-  }), [stats])
+  const dashboardData = useMemo(
+    () => ({
+      totalConsumers: stats.totalConsumers,
+      totalMerchants: stats.totalMerchants,
+      totalNGOs: stats.totalNGOs,
+      totalOrders: stats.totalOrders,
+    }),
+    [stats],
+  )
 
   const timeRangeOptions = [
     { value: '1day', label: '1 Day' },
@@ -205,12 +183,21 @@ export function DashboardPage() {
   ]
 
   const getTimeRangeLabel = (value: TimeRange) => {
-    return timeRangeOptions.find(opt => opt.value === value)?.label || '1 Day'
+    return timeRangeOptions.find((opt) => opt.value === value)?.label || '1 Day'
   }
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
+      {loading && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          Loading dashboard…
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -219,7 +206,6 @@ export function DashboardPage() {
         <GenerateReportButton pageContext="dashboard" data={dashboardData} />
       </div>
 
-      {/* Stat Cards - Single Row (4 columns) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statCards.map((card) => {
           const Icon = card.icon
@@ -232,6 +218,9 @@ export function DashboardPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600">{card.title}</p>
                   <p className="text-3xl font-bold text-gray-900 mt-2">{card.value}</p>
+                  {card.footnote && (
+                    <p className="text-xs text-gray-500 mt-2 leading-snug">{card.footnote}</p>
+                  )}
                 </div>
                 <div className={`${card.color} p-3 rounded-lg`}>
                   <Icon className="w-6 h-6 text-white" />
@@ -242,14 +231,13 @@ export function DashboardPage() {
         })}
       </div>
 
-      {/* Trend Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Orders Trend Chart */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Orders Trend</h2>
             <div className="relative" ref={ordersDropdownRef}>
               <button
+                type="button"
                 onClick={() => setOrdersDropdownOpen(!ordersDropdownOpen)}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors"
               >
@@ -261,6 +249,7 @@ export function DashboardPage() {
                   {timeRangeOptions.map((option) => (
                     <button
                       key={option.value}
+                      type="button"
                       onClick={() => {
                         setOrdersTimeRange(option.value as TimeRange)
                         setOrdersDropdownOpen(false)
@@ -280,23 +269,26 @@ export function DashboardPage() {
               )}
             </div>
           </div>
+          <p className="text-xs text-gray-500 mb-2">
+            Completed orders from Firestore, grouped by payment time (<code className="text-gray-600">paidAt</code>).
+          </p>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={ordersTrendData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
-              <YAxis />
+              <YAxis allowDecimals={false} />
               <Tooltip />
               <Line type="monotone" dataKey="orders" stroke="#00615F" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Donation Trend Chart */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Donation Trend</h2>
             <div className="relative" ref={donationDropdownRef}>
               <button
+                type="button"
                 onClick={() => setDonationDropdownOpen(!donationDropdownOpen)}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors"
               >
@@ -308,6 +300,7 @@ export function DashboardPage() {
                   {timeRangeOptions.map((option) => (
                     <button
                       key={option.value}
+                      type="button"
                       onClick={() => {
                         setDonationTimeRange(option.value as TimeRange)
                         setDonationDropdownOpen(false)
@@ -327,11 +320,14 @@ export function DashboardPage() {
               )}
             </div>
           </div>
+          <p className="text-xs text-gray-500 mb-2">
+            Donation metrics are not connected to Firebase yet; chart shows zero until data is available.
+          </p>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={donationTrendData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
-              <YAxis />
+              <YAxis allowDecimals={false} />
               <Tooltip />
               <Bar dataKey="donations" fill="#FF6B00" />
             </BarChart>

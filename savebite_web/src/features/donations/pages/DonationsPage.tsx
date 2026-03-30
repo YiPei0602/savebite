@@ -1,41 +1,50 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Search } from 'lucide-react'
-import { mockDonations, getDonationsByNGO, getDonationsByDateRange } from '@/shared/data/mockData'
 import { format } from 'date-fns'
 import { GenerateReportButton } from '@/shared/components/Common/GenerateReportButton'
+import type { DonationRecord } from '@/shared/types/models'
 
 export function DonationsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [ngoFilter, setNgoFilter] = useState('all')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [donations] = useState<DonationRecord[]>([])
 
   // Get unique NGOs
   const uniqueNGOs = useMemo(() => {
-    const ngos = new Set(mockDonations.map(d => d.ngoName))
+    const ngos = new Set(donations.map(d => d.ngoName).filter(Boolean))
     return Array.from(ngos)
-  }, [])
+  }, [donations])
 
   // Filter donations
   const filteredDonations = useMemo(() => {
-    let donations = mockDonations
+    let list = donations
 
-    // Apply NGO filter
+    // Completed only (successful deliveries)
+    list = list.filter(d => d.status === 'completed')
+
     if (ngoFilter !== 'all') {
-      const ngo = mockDonations.find(d => d.ngoName === ngoFilter)
-      if (ngo) {
-        donations = getDonationsByNGO(ngo.ngoId)
-      }
+      list = list.filter(d => d.ngoName === ngoFilter)
     }
 
-    // Apply date range filter
-    if (startDate && endDate) {
-      donations = getDonationsByDateRange(startDate, endDate)
+    if (startDate || endDate) {
+      list = list.filter((d) => {
+        const dt = new Date(d.deliveryDate)
+        if (startDate) {
+          const start = new Date(`${startDate}T00:00:00`)
+          if (dt < start) return false
+        }
+        if (endDate) {
+          const end = new Date(`${endDate}T23:59:59`)
+          if (dt > end) return false
+        }
+        return true
+      })
     }
 
-    // Apply search
     if (searchQuery) {
-      donations = donations.filter(
+      list = list.filter(
         donation =>
           donation.merchantName.toLowerCase().includes(searchQuery.toLowerCase()) ||
           donation.ngoName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -43,12 +52,16 @@ export function DonationsPage() {
       )
     }
 
-    return donations.filter(d => d.status === 'completed')
-  }, [searchQuery, ngoFilter, startDate, endDate])
+    return list
+  }, [donations, searchQuery, ngoFilter, startDate, endDate])
 
 
   return (
     <div className="space-y-6">
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg text-sm">
+        Donation records are not loaded from Firebase in this build. The table and filters below are ready for
+        when the donations collection is connected.
+      </div>
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -76,7 +89,7 @@ export function DonationsPage() {
           </div>
 
           {/* NGO Filter */}
-          <div>
+          <div className="md:col-span-2">
             <select
               value={ngoFilter}
               onChange={(e) => setNgoFilter(e.target.value)}
@@ -88,29 +101,27 @@ export function DonationsPage() {
               ))}
             </select>
           </div>
-
-          {/* Date Range */}
-          <div className="flex gap-2">
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              placeholder="Start Date"
-            />
-          </div>
         </div>
-        {startDate && (
-          <div className="mt-4">
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              placeholder="End Date"
-            />
-          </div>
-        )}
+
+        {/* Delivery date range — filters loaded Firestore data in memory */}
+        <div className="mt-4 flex flex-wrap gap-2 items-center">
+          <span className="text-sm text-gray-600 w-full sm:w-auto">Delivery date</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="flex-1 min-w-[140px] px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            aria-label="From date"
+          />
+          <span className="text-gray-500 text-sm">to</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="flex-1 min-w-[140px] px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            aria-label="To date"
+          />
+        </div>
       </div>
 
       {/* Donations Table */}

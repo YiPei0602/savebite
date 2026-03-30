@@ -202,8 +202,10 @@ class AppRouter {
         GoRoute(
           path: '/merchant-dashboard',
           name: 'merchant-dashboard',
-          builder: (context, state) =>
-              const MerchantShellScreen(initialTabIndex: 0),
+          builder: (context, state) => const MerchantShellScreen(
+            key: ValueKey('merchant-shell-home'),
+            initialTabIndex: 0,
+          ),
         ),
         GoRoute(
           path: '/add-surplus',
@@ -215,14 +217,18 @@ class AppRouter {
         GoRoute(
           path: '/merchant-orders',
           name: 'merchant-orders',
-          builder: (context, state) =>
-              const MerchantShellScreen(initialTabIndex: 1),
+          builder: (context, state) => const MerchantShellScreen(
+            key: ValueKey('merchant-shell-orders'),
+            initialTabIndex: 1,
+          ),
         ),
         GoRoute(
           path: '/merchant-profile',
           name: 'merchant-profile',
-          builder: (context, state) =>
-              const MerchantShellScreen(initialTabIndex: 2),
+          builder: (context, state) => const MerchantShellScreen(
+            key: ValueKey('merchant-shell-profile'),
+            initialTabIndex: 2,
+          ),
         ),
         GoRoute(
           path: '/merchant-store-setup',

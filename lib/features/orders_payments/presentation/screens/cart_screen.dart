@@ -183,7 +183,6 @@ class CartScreen extends StatelessWidget {
     final quantity = cartItem.quantity;
     final price = item.effectiveDiscountedPrice;
     final originalPrice = item.originalPrice;
-    final itemTotal = cartItem.subtotal;
     final itemSavings = cartItem.savings;
 
     return Container(
@@ -247,6 +246,16 @@ class CartScreen extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: AppConstants.paddingS),
+                  Text(
+                    'Qty: $quantity',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: AppConstants.paddingS),
                   Wrap(
                     spacing: AppConstants.paddingS,
                     crossAxisAlignment: WrapCrossAlignment.center,
@@ -285,141 +294,11 @@ class CartScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '${AppConstants.currencySymbol}${itemTotal.toStringAsFixed(2)}',
-                  style: AppTypography.h5.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.end,
-                ),
-                const SizedBox(height: AppConstants.paddingS),
-                _buildQuantityStepper(context, cartProvider, cartItem, quantity),
+                // Per-item total + quantity controls are handled elsewhere.
               ],
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// Quantity Stepper (- 1 +)
-  Widget _buildQuantityStepper(
-    BuildContext context,
-    CartProvider cartProvider,
-    CartItemModel cartItem,
-    int quantity,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.border, width: 1),
-        borderRadius: BorderRadius.circular(AppConstants.radiusS),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          InkWell(
-            onTap: () {
-              if (quantity > 1) {
-                cartProvider.decrementQuantity(cartItem.id);
-              } else {
-                _showRemoveItemDialog(context, cartProvider, cartItem);
-              }
-            },
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(AppConstants.radiusS),
-              bottomLeft: Radius.circular(AppConstants.radiusS),
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(AppConstants.paddingS),
-              child: const Icon(
-                Icons.remove,
-                size: 18,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppConstants.paddingM,
-              vertical: AppConstants.paddingS,
-            ),
-            decoration: BoxDecoration(
-              border: Border.symmetric(
-                vertical: BorderSide(color: AppColors.border, width: 1),
-              ),
-            ),
-            child: Text(
-              '$quantity',
-              style: AppTypography.bodyMedium.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          InkWell(
-            onTap: () {
-              try {
-                cartProvider.incrementQuantity(cartItem.id);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString().replaceFirst('Exception: ', '')),
-                    duration: const Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-            borderRadius: BorderRadius.only(
-              topRight: Radius.circular(AppConstants.radiusS),
-              bottomRight: Radius.circular(AppConstants.radiusS),
-            ),
-            child: Container(
-              padding: const EdgeInsets.all(AppConstants.paddingS),
-              child: const Icon(
-                Icons.add,
-                size: 18,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRemoveItemDialog(
-    BuildContext context,
-    CartProvider cartProvider,
-    CartItemModel cartItem,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove Item?', style: AppTypography.h4),
-        content: Text(
-          'Do you want to remove "${cartItem.foodItem.name}" from your cart?',
-          style: AppTypography.bodyMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: AppTypography.bodyMedium),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              cartProvider.removeItem(cartItem.id);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Item removed from cart'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
-            child: Text('Remove', style: AppTypography.buttonMedium),
-          ),
-        ],
       ),
     );
   }

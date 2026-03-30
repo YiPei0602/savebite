@@ -1,20 +1,65 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Edit, Save, X } from 'lucide-react'
-import { mockUsers } from '@/shared/data/mockData'
 import { format } from 'date-fns'
+import type { UserRecord, UserRole } from '@/shared/types/models'
+import { getUserById, updateUser } from '@/features/users/api/usersApi'
 
 export function UserDetailsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const user = mockUsers.find(u => u.id === id)
+  const [user, setUser] = useState<UserRecord | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [formData, setFormData] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-    phone: user?.phone || '',
+    name: '',
+    email: '',
+    role: 'consumer' as UserRole,
   })
   const [showSuccessMessage, setShowSuccessMessage] = useState('')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savePending, setSavePending] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    if (!id) return
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const u = await getUserById(id)
+        if (!alive) return
+        setUser(u)
+        setFormData({
+          name: u?.name ?? '',
+          email: u?.email ?? '',
+          role: (u?.role ?? 'consumer') as UserRole,
+        })
+      } catch (e) {
+        if (!alive) return
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!alive) return
+        setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [id])
+
+  if (loading) {
+    return <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">Loading user…</div>
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+        {error}
+      </div>
+    )
+  }
 
   if (!user) {
     return (
@@ -30,19 +75,44 @@ export function UserDetailsPage() {
     )
   }
 
-  const handleSave = () => {
-    // In real app, this would call an API
-    setShowSuccessMessage('User updated successfully')
-    setIsEditing(false)
-    setTimeout(() => setShowSuccessMessage(''), 3000)
+  const handleSave = async () => {
+    setSaveError(null)
+    setSavePending(true)
+    try {
+      await updateUser(user.id, {
+        name: formData.name,
+        email: formData.email,
+        role: formData.role,
+      })
+      setUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: formData.name,
+              email: formData.email,
+              role: formData.role,
+            }
+          : prev,
+      )
+      setShowSuccessMessage('User updated successfully')
+      setIsEditing(false)
+      setTimeout(() => setShowSuccessMessage(''), 4000)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setSaveError(msg)
+      window.alert(`Update failed: ${msg}`)
+    } finally {
+      setSavePending(false)
+    }
   }
 
   const handleCancel = () => {
     setFormData({
       name: user.name,
       email: user.email,
-      phone: user.phone || '',
+      role: user.role,
     })
+    setSaveError(null)
     setIsEditing(false)
   }
 
@@ -80,6 +150,11 @@ export function UserDetailsPage() {
           {showSuccessMessage}
         </div>
       )}
+      {saveError && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          {saveError}
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -113,11 +188,13 @@ export function UserDetailsPage() {
               Cancel
             </button>
             <button
+              type="button"
+              disabled={savePending}
               onClick={handleSave}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              Save
+              {savePending ? 'Saving…' : 'Save'}
             </button>
           </div>
         )}
@@ -155,22 +232,22 @@ export function UserDetailsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
-            {isEditing ? (
-              <input
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
-            ) : (
-              <p className="text-gray-900">{user.phone || 'N/A'}</p>
-            )}
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
-            {getRoleBadge(user.role)}
+            {isEditing ? (
+              <select
+                value={formData.role}
+                onChange={(e) =>
+                  setFormData({ ...formData, role: e.target.value as UserRole })
+                }
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+              >
+                <option value="consumer">Consumer</option>
+                <option value="merchant">Merchant</option>
+                <option value="ngo">NGO</option>
+              </select>
+            ) : (
+              getRoleBadge(user.role)
+            )}
           </div>
 
           <div>
@@ -182,13 +259,6 @@ export function UserDetailsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">Created At</label>
             <p className="text-gray-900">{format(new Date(user.createdAt), 'MMM dd, yyyy HH:mm')}</p>
           </div>
-
-          {user.lastLogin && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Last Login</label>
-              <p className="text-gray-900">{format(new Date(user.lastLogin), 'MMM dd, yyyy HH:mm')}</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

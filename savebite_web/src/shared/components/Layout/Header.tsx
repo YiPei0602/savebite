@@ -1,6 +1,7 @@
 import { useAuthStore } from '@/core/store/authStore'
 import { LogOut, User as UserIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { AdminFirebaseLoginButton } from '@/shared/components/Common/AdminFirebaseLoginButton'
 
 export function Header() {
   const { user, logout } = useAuthStore()
@@ -16,6 +17,7 @@ export function Header() {
       <h1 className="text-xl font-semibold text-gray-900">Admin Dashboard</h1>
       
       <div className="flex items-center gap-4">
+        <AdminFirebaseLoginButton />
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
             <UserIcon className="w-5 h-5 text-white" />

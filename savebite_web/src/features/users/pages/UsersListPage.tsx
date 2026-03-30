@@ -1,73 +1,138 @@
-import { useState, useMemo } from 'react'
-import { Search, Edit, Trash2, UserCheck, UserX, Eye } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Search, Trash2, UserCheck, UserX, Eye } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { mockUsers, User, getUsersByRole, getUsersByStatus } from '@/shared/data/mockData'
 import { format } from 'date-fns'
 import { GenerateReportButton } from '@/shared/components/Common/GenerateReportButton'
+import type { UserRecord } from '@/shared/types/models'
+import { deleteUser, getUsers, updateUserStatus } from '@/features/users/api/usersApi'
 
 export function UsersListPage() {
   const navigate = useNavigate()
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [selectedUser, setSelectedUser] = useState<UserRecord | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showSuccessMessage, setShowSuccessMessage] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingActionUserId, setPendingActionUserId] = useState<string | null>(null)
+  const [deletePending, setDeletePending] = useState(false)
+  const [users, setUsers] = useState<UserRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const showActionError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e)
+    setActionError(msg)
+    window.alert(`Action failed: ${msg}`)
+  }
+
+  const clearActionFeedbackSoon = (success: string) => {
+    setShowSuccessMessage(success)
+    setTimeout(() => setShowSuccessMessage(''), 4000)
+  }
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const u = await getUsers()
+        if (!alive) return
+        setUsers(u)
+      } catch (e) {
+        if (!alive) return
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!alive) return
+        setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Filter users
   const filteredUsers = useMemo(() => {
-    let users = mockUsers
+    let list = users
 
-    // Apply role filter
     if (roleFilter !== 'all') {
-      users = getUsersByRole(roleFilter)
+      list = list.filter((u) => u.role === roleFilter)
     }
 
-    // Apply status filter
     if (statusFilter !== 'all') {
-      users = getUsersByStatus(statusFilter)
+      list = list.filter((u) => u.status === statusFilter)
     }
 
     // Apply search
     if (searchQuery) {
-      users = users.filter(
+      list = list.filter(
         user =>
           user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           user.email.toLowerCase().includes(searchQuery.toLowerCase())
       )
     }
 
-    return users
-  }, [searchQuery, roleFilter, statusFilter])
+    return list
+  }, [searchQuery, roleFilter, statusFilter, users])
 
-  const handleViewDetails = (user: User) => {
+  const handleViewDetails = (user: UserRecord) => {
     navigate(`/users/${user.id}`)
   }
 
-  const handleActivate = (user: User) => {
-    // In real app, this would call an API
-    setShowSuccessMessage(`User ${user.name} activated successfully`)
-    setTimeout(() => setShowSuccessMessage(''), 3000)
+  const handleActivate = async (user: UserRecord) => {
+    setActionError(null)
+    setPendingActionUserId(user.id)
+    try {
+      await updateUserStatus(user.id, 'active')
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: 'active' } : u)),
+      )
+      clearActionFeedbackSoon(`User ${user.name} activated successfully`)
+    } catch (e) {
+      showActionError(e)
+    } finally {
+      setPendingActionUserId(null)
+    }
   }
 
-  const handleSuspend = (user: User) => {
-    // In real app, this would call an API
-    setShowSuccessMessage(`User ${user.name} suspended successfully`)
-    setTimeout(() => setShowSuccessMessage(''), 3000)
+  const handleSuspend = async (user: UserRecord) => {
+    setActionError(null)
+    setPendingActionUserId(user.id)
+    try {
+      await updateUserStatus(user.id, 'suspended')
+      setUsers((prev) =>
+        prev.map((u) => (u.id === user.id ? { ...u, status: 'suspended' } : u)),
+      )
+      clearActionFeedbackSoon(`User ${user.name} suspended successfully`)
+    } catch (e) {
+      showActionError(e)
+    } finally {
+      setPendingActionUserId(null)
+    }
   }
 
-  const handleDeleteClick = (user: User) => {
+  const handleDeleteClick = (user: UserRecord) => {
     setSelectedUser(user)
     setShowDeleteModal(true)
   }
 
-  const handleDeleteConfirm = () => {
-    if (selectedUser) {
-      // In real app, this would call an API
-      setShowSuccessMessage(`User ${selectedUser.name} deleted successfully`)
-      setTimeout(() => setShowSuccessMessage(''), 3000)
+  const handleDeleteConfirm = async () => {
+    if (!selectedUser) return
+    setActionError(null)
+    setDeletePending(true)
+    try {
+      await deleteUser(selectedUser.id)
+      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id))
+      clearActionFeedbackSoon(`User ${selectedUser.name} deleted successfully`)
       setShowDeleteModal(false)
       setSelectedUser(null)
+    } catch (e) {
+      showActionError(e)
+    } finally {
+      setDeletePending(false)
     }
   }
 
@@ -99,6 +164,28 @@ export function UsersListPage() {
 
   return (
     <div className="space-y-6">
+      {loading && (
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          Loading users…
+        </div>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+          {actionError}
+          <button
+            type="button"
+            className="ml-3 text-sm underline"
+            onClick={() => setActionError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Success Message */}
       {showSuccessMessage && (
         <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
@@ -220,24 +307,30 @@ export function UsersListPage() {
                         </button>
                         {user.status === 'active' ? (
                           <button
+                            type="button"
+                            disabled={pendingActionUserId === user.id}
                             onClick={() => handleSuspend(user)}
-                            className="text-yellow-600 hover:text-yellow-900"
+                            className="text-yellow-600 hover:text-yellow-900 disabled:opacity-40"
                             title="Suspend"
                           >
                             <UserX className="w-4 h-4" />
                           </button>
                         ) : (
                           <button
+                            type="button"
+                            disabled={pendingActionUserId === user.id}
                             onClick={() => handleActivate(user)}
-                            className="text-green-600 hover:text-green-900"
+                            className="text-green-600 hover:text-green-900 disabled:opacity-40"
                             title="Activate"
                           >
                             <UserCheck className="w-4 h-4" />
                           </button>
                         )}
                         <button
+                          type="button"
+                          disabled={pendingActionUserId === user.id}
                           onClick={() => handleDeleteClick(user)}
-                          className="text-red-600 hover:text-red-900"
+                          className="text-red-600 hover:text-red-900 disabled:opacity-40"
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -262,19 +355,23 @@ export function UsersListPage() {
             </p>
             <div className="flex gap-3 justify-end">
               <button
+                type="button"
+                disabled={deletePending}
                 onClick={() => {
                   setShowDeleteModal(false)
                   setSelectedUser(null)
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
+                type="button"
+                disabled={deletePending}
                 onClick={handleDeleteConfirm}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
               >
-                Delete
+                {deletePending ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>
