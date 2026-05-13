@@ -11,7 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
-import 'package:savebite/features/orders_payments/domain/mock_payment_checkout_args.dart';
+import 'package:savebite/features/orders_payments/domain/payment_checkout_args.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/presentation/widgets/order_placed_success_dialog.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
@@ -19,20 +19,20 @@ import 'package:savebite/features/orders_payments/state/providers/order_provider
 import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Stripe card (CardField + confirmPayment); order is created only after payment succeeds.
-class MockPaymentScreen extends StatefulWidget {
-  const MockPaymentScreen({super.key, required this.args});
+class PaymentScreen extends StatefulWidget {
+  const PaymentScreen({super.key, required this.args});
 
-  final MockPaymentCheckoutArgs args;
+  final PaymentCheckoutArgs args;
 
   @override
-  State<MockPaymentScreen> createState() => _MockPaymentScreenState();
+  State<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _MockPaymentScreenState extends State<MockPaymentScreen> {
+class _PaymentScreenState extends State<PaymentScreen> {
   bool _busy = false;
   bool _cardComplete = false;
 
-  MockPaymentCheckoutArgs get args => widget.args;
+  PaymentCheckoutArgs get args => widget.args;
 
   static String _paymentMethodLabel(PaymentMethod m) {
     switch (m) {
@@ -64,7 +64,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
     var firebaseUser = auth.currentUser;
     if (kDebugMode) {
       debugPrint(
-        '[MockPayment] after authStateChanges.first: '
+        '[Payment] after authStateChanges.first: '
         'currentUser=${firebaseUser != null ? "set" : "null"} '
         'uid=${firebaseUser?.uid}',
       );
@@ -82,7 +82,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
           ? token
           : '${token.substring(0, 24)}…';
       debugPrint(
-        '[MockPayment] getIdToken(forceRefresh): '
+        '[Payment] getIdToken(forceRefresh): '
         'len=${token?.length ?? 0} prefix=$prefix',
       );
     }
@@ -145,7 +145,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
       throw Exception('Missing payment client secret.');
     }
     if (kDebugMode) {
-      debugPrint('[MockPayment] createPaymentIntent OK');
+      debugPrint('[Payment] createPaymentIntent OK');
     }
     return secret;
   }
@@ -206,7 +206,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
 
       if (kDebugMode) {
         debugPrint(
-          '[MockPayment] PaymentIntent status after confirm/nextAction: '
+          '[Payment] PaymentIntent status after confirm/nextAction: '
           '${paymentIntent.status}',
         );
       }
@@ -238,7 +238,7 @@ class _MockPaymentScreenState extends State<MockPaymentScreen> {
       if (e is FirebaseException && e.plugin == 'firebase_functions') {
         if (kDebugMode) {
           debugPrint(
-            '[MockPayment] FirebaseFunctions code=${e.code} '
+            '[Payment] FirebaseFunctions code=${e.code} '
             'message=${e.message} stack=$st',
           );
         }

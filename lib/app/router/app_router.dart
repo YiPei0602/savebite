@@ -16,11 +16,10 @@ import '../../features/merchant_management/presentation/screens/merchant_store_s
 import '../../features/auth_profile_impact/presentation/screens/edit_profile_screen.dart';
 import '../../features/orders_payments/presentation/screens/payment_methods_screen.dart';
 import '../../features/core_notifications/presentation/screens/notifications_screen.dart';
-import '../../features/donations/presentation/screens/donation_prompt_screen.dart';
 import '../../features/orders_payments/presentation/screens/cart_screen.dart';
 import '../../features/orders_payments/presentation/screens/checkout_screen.dart';
-import '../../features/orders_payments/presentation/screens/mock_payment_screen.dart';
-import '../../features/orders_payments/domain/mock_payment_checkout_args.dart';
+import '../../features/orders_payments/presentation/screens/payment_screen.dart';
+import '../../features/orders_payments/domain/payment_checkout_args.dart';
 import '../../features/orders_payments/presentation/screens/order_history_screen.dart';
 import '../../features/orders/screens/order_tracking_screen.dart';
 import '../../features/marketplace_surplus/presentation/screens/merchant_details_screen.dart';
@@ -44,7 +43,6 @@ const _merchantOnlyRoutePrefixes = [
   '/merchant-orders',
   '/merchant-profile',
   '/merchant-store-setup',
-  '/donation-prompt',
 ];
 
 /// Routes that are valid for both roles (authenticated).
@@ -60,7 +58,7 @@ const _consumerOnlyRoutePrefixes = [
   '/notifications',
   '/cart',
   '/checkout',
-  '/mock-payment',
+  '/payment',
   '/order-history',
   '/order-tracking',
   '/category/',
@@ -268,15 +266,6 @@ class AppRouter {
         ),
 
         // ========================================================================
-        // DONATION ROUTES
-        // ========================================================================
-        GoRoute(
-          path: '/donation-prompt',
-          name: 'donation-prompt',
-          builder: (context, state) => const DonationPromptScreen(),
-        ),
-
-        // ========================================================================
         // CART & CHECKOUT ROUTES
         // ========================================================================
         GoRoute(
@@ -290,16 +279,16 @@ class AppRouter {
           builder: (context, state) => const CheckoutScreen(),
         ),
         GoRoute(
-          path: '/mock-payment',
-          name: 'mock-payment',
+          path: '/payment',
+          name: 'payment',
           builder: (context, state) {
             final extra = state.extra;
-            if (extra is! MockPaymentCheckoutArgs) {
+            if (extra is! PaymentCheckoutArgs) {
               return const Scaffold(
                 body: Center(child: Text('Invalid checkout state')),
               );
             }
-            return MockPaymentScreen(args: extra);
+            return PaymentScreen(args: extra);
           },
         ),
 

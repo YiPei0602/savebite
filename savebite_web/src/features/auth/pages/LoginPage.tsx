@@ -85,7 +85,7 @@ export function LoginPage() {
               <div className="flex flex-col">
                 <h1 className="text-2xl font-bold leading-tight">SaveBite</h1>
                 <p className="text-base font-medium text-white leading-relaxed">
-                  Surplus Food Management & Redistribution
+                  Surplus Food Marketplace & Operations
                 </p>
               </div>
             </div>
@@ -98,7 +98,7 @@ export function LoginPage() {
             </h2>
             <p className="text-base md:text-lg mb-12 opacity-95 leading-relaxed">
               Secure access for system administrators to manage users,<br />
-              monitor platform activity, and oversee donation operations.
+              monitor platform activity, and review marketplace operations.
             </p>
           </div>
 
@@ -120,12 +120,12 @@ export function LoginPage() {
               <p className="text-sm font-medium text-white">Real-time System Analytics</p>
             </div>
 
-            {/* Donation Oversight */}
+            {/* Sustainability / impact visibility */}
             <div className="flex items-center gap-3 opacity-75 transition-opacity hover:opacity-90">
               <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: colors.accent }}>
                 <Check className="w-3.5 h-3.5 text-white" />
               </div>
-              <p className="text-sm font-medium text-white">Track NGO Donations & Impact</p>
+              <p className="text-sm font-medium text-white">Monitor Orders & Platform Health</p>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 # 🍽️ SaveBite - Food Rescue Platform
 
-**SaveBite** is a mobile application designed to minimize food waste in Malaysia by connecting merchants with surplus food to consumers and NGOs.
+SaveBite connects **merchants** with surplus food to **consumers** who purchase rescue items at a discount, with pickup and delivery coordination on mobile.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.22.3-blue)
 ![Dart](https://img.shields.io/badge/Dart-3.4.4-blue)
@@ -9,22 +9,19 @@
 
 ## 🎯 Project Overview
 
-SaveBite connects three key stakeholders:
-1. **Merchants** - List surplus food at discounted prices or donate it
-2. **Consumers** - Buy surplus food at discounts or pick it up for free
-3. **NGOs** - Receive automated donations of unsold food
+1. **Merchants** — List surplus food at discounted prices and manage orders
+2. **Consumers** — Discover deals, check out, and track pickup or delivery
 
 ---
 
 ## 🏗️ System Architecture
 
-The system is built around **five seamlessly integrated modules**:
+The system is built around **four** integrated product areas:
 
 1. **User Profile & Personalized Impact Dashboard**
 2. **Surplus Food Management & Discovery**
 3. **Order & Payment Management**
 4. **Delivery & Pickup Scheduling**
-5. **Smart Donation Coordination**
 
 See [MODULES.md](MODULES.md) for detailed module documentation.
 
@@ -81,7 +78,6 @@ flutter run -d ios
 - [x] Add/Manage Surplus Items
 - [x] Payment Methods
 - [x] Notifications
-- [x] Donation Prompt
 
 ### ⏳ In Progress
 - [ ] Firebase Integration
@@ -124,8 +120,7 @@ lib/
 │   ├── merchant/                # Module 2: Merchant Management
 │   ├── payment/                 # Module 3: Payment
 │   ├── notifications/           # Module 3: Notifications
-│   ├── order/                   # Module 4: Order Tracking
-│   └── donation/                # Module 5: Donations
+│   └── order/                   # Order tracking
 ├── models/                      # Data models
 ├── providers/                   # State management
 └── services/                    # API services

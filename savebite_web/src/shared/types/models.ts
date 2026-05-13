@@ -1,4 +1,4 @@
-export type UserRole = 'consumer' | 'merchant' | 'ngo'
+export type UserRole = 'consumer' | 'merchant'
 export type UserStatus = 'active' | 'suspended' | 'inactive'
 
 export interface UserRecord {
@@ -17,18 +17,5 @@ export interface OrderRecord {
   orderStatus: string
   /** ISO string from Firestore `paidAt` */
   paidAt: string
-}
-
-export type DonationStatus = 'completed' | 'pending' | 'cancelled'
-
-export interface DonationRecord {
-  id: string
-  merchantName: string
-  ngoName: string
-  items: string[]
-  quantity: number
-  status: DonationStatus
-  deliveryDate: string
-  createdAt: string
 }
 

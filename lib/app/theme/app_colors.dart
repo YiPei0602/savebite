@@ -133,9 +133,6 @@ class AppColors {
   /// Consumer Role Indicator
   static const Color consumer = Color(0xFF007BFF);
 
-  /// NGO Role Indicator
-  static const Color ngo = Color(0xFFE83E8C);
-
   // ============================================================================
   // FOOD CATEGORY COLORS (Optional - for visual categorization)
   // ============================================================================

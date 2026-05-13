@@ -1,14 +1,75 @@
 import { useState, useEffect } from 'react'
 import { FileText, Download, X } from 'lucide-react'
 import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns'
 
-interface GenerateReportButtonProps {
-  pageContext: 'dashboard' | 'users' | 'donations' | 'profile'
-  data?: any
+type TrendRow = { date: string; orders: number }
+
+async function waitForChartPaint(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  await new Promise((r) => setTimeout(r, 150))
 }
 
-export function GenerateReportButton({ pageContext, data }: GenerateReportButtonProps) {
+async function captureOrdersChartPng(): Promise<{ dataUrl: string; aspect: number } | null> {
+  const el = document.getElementById('ordersChart')
+  if (!el) return null
+  const { width, height } = el.getBoundingClientRect()
+  if (width < 8 || height < 8) return null
+  try {
+    const canvas = await html2canvas(el, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+    })
+    return {
+      dataUrl: canvas.toDataURL('image/png'),
+      aspect: canvas.height / Math.max(canvas.width, 1),
+    }
+  } catch (e) {
+    console.warn('ordersChart capture failed', e)
+    return null
+  }
+}
+
+function buildDashboardInsightBullets(rows: TrendRow[] | undefined): string[] {
+  const list = Array.isArray(rows)
+    ? rows.map((r) => ({ date: String(r.date), orders: Number(r.orders) || 0 }))
+    : []
+  if (list.length === 0) {
+    return ['No completed orders in the current chart window for this time range.']
+  }
+  const first = list[0]!.orders
+  const last = list[list.length - 1]!.orders
+  let trend: string
+  if (last > first) {
+    trend = 'Completed orders trend upward toward the end of the selected period.'
+  } else if (last < first) {
+    trend = 'Higher completed-order volume appears earlier in the selected period.'
+  } else {
+    trend = 'Completed-order volume is relatively steady across the selected period.'
+  }
+  let maxI = 0
+  for (let i = 1; i < list.length; i++) {
+    if (list[i]!.orders > list[maxI]!.orders) maxI = i
+  }
+  const peak = `Peak in chart: ${list[maxI]!.date} (${list[maxI]!.orders} completed).`
+  return [trend, peak]
+}
+
+interface GenerateReportButtonProps {
+  pageContext: 'dashboard' | 'users' | 'profile'
+  data?: any
+  onGeneratingChange?: (loading: boolean) => void
+}
+
+export function GenerateReportButton({
+  pageContext,
+  data,
+  onGeneratingChange,
+}: GenerateReportButtonProps) {
   const [showModal, setShowModal] = useState(false)
   const [dateRange, setDateRange] = useState('1week')
   const [startDate, setStartDate] = useState('')
@@ -20,24 +81,22 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
   const [dashboardMetrics, setDashboardMetrics] = useState({
     totalConsumers: true,
     totalMerchants: true,
-    totalNGOs: true,
     totalOrders: true,
     ordersTrend: true,
-    donationTrend: true,
   })
 
   // Users-specific state
   const [userTypeFilter, setUserTypeFilter] = useState('all')
   const [userStatusFilter, setUserStatusFilter] = useState('all')
 
-  // Donations-specific state
-  const [donationMerchantFilter, setDonationMerchantFilter] = useState('all')
-  const [donationNGOFilter, setDonationNGOFilter] = useState('all')
-
   // Initialize date range on mount
   useEffect(() => {
     handleDateRangeChange('1week')
   }, [])
+
+  useEffect(() => {
+    onGeneratingChange?.(isGenerating)
+  }, [isGenerating, onGeneratingChange])
 
   const handleDateRangeChange = (range: string) => {
     setDateRange(range)
@@ -68,97 +127,213 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
 
   const handleGenerateReport = async () => {
     setIsGenerating(true)
+    try {
+      const doc = new jsPDF()
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1500))
+      const titles = {
+        dashboard: 'SaveBite System Report',
+        users: 'SaveBite User Management Report',
+        profile: 'SaveBite Report',
+      }
 
-    const doc = new jsPDF()
-    
-    // Title based on context
-    const titles = {
-      dashboard: 'SaveBite System Report',
-      users: 'SaveBite User Management Report',
-      donations: 'SaveBite Donation Report',
-      profile: 'SaveBite Report',
+      if (pageContext === 'dashboard') {
+        // Close modal so #ordersChart is visible for html2canvas (overlay would block capture).
+        setShowModal(false)
+        await waitForChartPaint()
+        await new Promise((r) => setTimeout(r, 200))
+        await appendDashboardReportToPdf(doc)
+      } else {
+        doc.setFontSize(18)
+        doc.setFont('helvetica', 'bold')
+        doc.text(titles[pageContext] || 'SaveBite Report', 14, 20)
+
+        doc.setFontSize(12)
+        doc.setFont('helvetica', 'normal')
+        let yPos = 30
+        doc.text(`Report Generated: ${format(new Date(), 'MMM dd, yyyy HH:mm')}`, 14, yPos)
+        yPos += 10
+
+        if (startDate && endDate) {
+          doc.text(
+            `Date Range: ${format(new Date(startDate), 'MMM dd, yyyy')} - ${format(new Date(endDate), 'MMM dd, yyyy')}`,
+            14,
+            yPos,
+          )
+          yPos += 10
+        } else {
+          doc.text(`Time Range: ${dateRange}`, 14, yPos)
+          yPos += 10
+        }
+
+        yPos += 5
+
+        if (pageContext === 'users') {
+          generateUsersReport(doc, yPos, Array.isArray(data) ? data : [])
+        }
+      }
+
+      const fileName = `${pageContext}-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`
+      doc.save(fileName)
+
+      setShowModal(false)
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 3000)
+    } catch (e) {
+      console.error(e)
+      alert('Could not generate PDF. Please try again.')
+    } finally {
+      setIsGenerating(false)
     }
-    
-    doc.setFontSize(18)
-    doc.text(titles[pageContext] || 'SaveBite Report', 14, 20)
-    
-    // Criteria
-    doc.setFontSize(12)
-    let yPos = 30
-    doc.text(`Report Generated: ${format(new Date(), 'MMM dd, yyyy HH:mm')}`, 14, yPos)
-    yPos += 10
-    
-    if (startDate && endDate) {
-      doc.text(`Date Range: ${format(new Date(startDate), 'MMM dd, yyyy')} - ${format(new Date(endDate), 'MMM dd, yyyy')}`, 14, yPos)
-      yPos += 10
-    } else {
-      doc.text(`Time Range: ${dateRange}`, 14, yPos)
-      yPos += 10
-    }
-    
-    yPos += 5
-    
-    // Page-specific content generation
-    if (pageContext === 'dashboard') {
-      generateDashboardReport(doc, yPos)
-    } else if (pageContext === 'users') {
-      generateUsersReport(doc, yPos, Array.isArray(data) ? data : [])
-    } else if (pageContext === 'donations') {
-      generateDonationsReport(doc, yPos, Array.isArray(data) ? data : [])
-    }
-    
-    // Save PDF
-    const fileName = `${pageContext}-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`
-    doc.save(fileName)
-    
-    setIsGenerating(false)
-    setShowModal(false)
-    setShowSuccess(true)
-    setTimeout(() => setShowSuccess(false), 3000)
   }
 
-  const generateDashboardReport = (doc: jsPDF, startY: number) => {
-    let yPos = startY
-    doc.setFontSize(10)
+  const appendDashboardReportToPdf = async (doc: jsPDF) => {
+    const pageW = doc.internal.pageSize.getWidth()
+    const margin = 14
+    const contentW = pageW - margin * 2
+    const primaryRgb: [number, number, number] = [0, 97, 95]
+
     doc.setFont('helvetica', 'bold')
-    doc.text('System Overview Statistics', 14, yPos)
-    yPos += 10
+    doc.setFontSize(18)
+    doc.setTextColor(20, 20, 20)
+    doc.text('SaveBite System Report', pageW / 2, 24, { align: 'center' })
+
+    doc.setFontSize(11)
     doc.setFont('helvetica', 'normal')
+    doc.setTextColor(85, 85, 85)
+    doc.text('System Analytics Report', pageW / 2, 32, { align: 'center' })
 
-    if (dashboardMetrics.totalConsumers && data) {
-      doc.text(`Total Consumers: ${data.totalConsumers || 0}`, 14, yPos)
-      yPos += 7
-    }
-    if (dashboardMetrics.totalMerchants && data) {
-      doc.text(`Total Merchants: ${data.totalMerchants || 0}`, 14, yPos)
-      yPos += 7
-    }
-    if (dashboardMetrics.totalNGOs && data) {
-      doc.text(`Total NGOs Served: ${data.totalNGOs || 0}`, 14, yPos)
-      yPos += 7
-    }
-    if (dashboardMetrics.totalOrders && data) {
-      doc.text(`Total Orders Completed: ${data.totalOrders || 0}`, 14, yPos)
-      yPos += 7
-    }
+    let y = 42
+    doc.setDrawColor(210)
+    doc.setLineWidth(0.3)
+    doc.line(margin, y, pageW - margin, y)
+    y += 10
 
-    if (dashboardMetrics.ordersTrend || dashboardMetrics.donationTrend) {
-      yPos += 5
-      doc.setFont('helvetica', 'bold')
-      doc.text('Trends', 14, yPos)
-      yPos += 7
+    doc.setFontSize(10)
+    doc.setTextColor(55, 55, 55)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Report generated: ${format(new Date(), 'MMM dd, yyyy HH:mm')}`, margin, y)
+    y += 6
+    if (startDate && endDate) {
+      doc.text(
+        `Date range: ${format(new Date(startDate), 'MMM dd, yyyy')} – ${format(new Date(endDate), 'MMM dd, yyyy')}`,
+        margin,
+        y,
+      )
+    } else {
+      doc.text(`Report period preset: ${dateRange}`, margin, y)
+    }
+    y += 14
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.setTextColor(...primaryRgb)
+    doc.text('Summary', margin, y)
+    y += 10
+
+    const summaryItems: { label: string; value: number; show: boolean }[] = [
+      { label: 'Total Consumers', value: Number(data?.totalConsumers) || 0, show: dashboardMetrics.totalConsumers },
+      { label: 'Total Merchants', value: Number(data?.totalMerchants) || 0, show: dashboardMetrics.totalMerchants },
+      {
+        label: 'Total Orders Completed',
+        value: Number(data?.totalOrders) || 0,
+        show: dashboardMetrics.totalOrders,
+      },
+    ]
+
+    for (const row of summaryItems) {
+      if (!row.show) continue
       doc.setFont('helvetica', 'normal')
-      if (dashboardMetrics.ordersTrend) {
-        doc.text('Orders Trend: Included in report', 14, yPos)
-        yPos += 7
+      doc.setFontSize(9)
+      doc.setTextColor(110, 110, 110)
+      doc.text(row.label, margin, y)
+      y += 6
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(20)
+      doc.setTextColor(...primaryRgb)
+      doc.text(String(row.value), margin, y + 2)
+      y += 16
+    }
+
+    y += 6
+    doc.setDrawColor(220)
+    doc.line(margin, y, pageW - margin, y)
+    y += 12
+
+    if (dashboardMetrics.ordersTrend) {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(13)
+      doc.setTextColor(...primaryRgb)
+      doc.text('Orders Trend', margin, y)
+      y += 7
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(95, 95, 95)
+      const rangeLabel = data?.ordersChartRangeLabel ?? 'Dashboard selection'
+      doc.text(`Completed orders (paidAt), chart range: ${rangeLabel}`, margin, y)
+      y += 10
+
+      await waitForChartPaint()
+      const cap = await captureOrdersChartPng()
+      if (cap) {
+        const imgW = contentW
+        const imgH = imgW * cap.aspect
+        if (y + imgH > 275) {
+          doc.addPage()
+          y = margin
+        }
+        try {
+          doc.addImage(cap.dataUrl, 'PNG', margin, y, imgW, imgH)
+          y += imgH + 12
+        } catch {
+          doc.setFontSize(10)
+          doc.setTextColor(130, 130, 130)
+          doc.text('Could not embed chart image.', margin, y)
+          y += 10
+        }
+      } else {
+        doc.setFontSize(10)
+        doc.setTextColor(130, 130, 130)
+        const fallback = doc.splitTextToSize(
+          'Chart not captured (ensure the Orders Trend chart is visible; element #ordersChart missing).',
+          contentW,
+        )
+        for (const line of fallback) {
+          doc.text(line, margin, y)
+          y += 5
+        }
+        y += 8
       }
-      if (dashboardMetrics.donationTrend) {
-        doc.text('Donation Trend: Included in report', 14, yPos)
-        yPos += 7
+    }
+
+    y += 4
+    if (y > 240) {
+      doc.addPage()
+      y = margin
+    }
+    doc.setDrawColor(220)
+    doc.line(margin, y, pageW - margin, y)
+    y += 12
+
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(13)
+    doc.setTextColor(...primaryRgb)
+    doc.text('Insights', margin, y)
+    y += 9
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(10)
+    doc.setTextColor(45, 45, 45)
+    const bullets = buildDashboardInsightBullets(data?.ordersTrendData as TrendRow[] | undefined)
+    for (const b of bullets) {
+      const wrapped = doc.splitTextToSize(`• ${b}`, contentW)
+      for (const line of wrapped) {
+        if (y > 278) {
+          doc.addPage()
+          y = margin
+        }
+        doc.text(line, margin, y)
+        y += 5
       }
+      y += 2
     }
   }
 
@@ -222,87 +397,14 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
     })
   }
 
-  const generateDonationsReport = (
-    doc: jsPDF,
-    startY: number,
-    donationsInput: any[],
-  ) => {
-    let yPos = startY
-    doc.setFontSize(10)
-    doc.setFont('helvetica', 'bold')
-    doc.text('Donation Delivery Report', 14, yPos)
-    yPos += 10
-
-    // Apply filters
-    let filteredDonations = donationsInput.filter(d => d.status === 'completed')
-
-    if (donationMerchantFilter !== 'all') {
-      filteredDonations = filteredDonations.filter(
-        (d) => d.merchantName === donationMerchantFilter,
-      )
-    }
-
-    if (donationNGOFilter !== 'all') {
-      filteredDonations = filteredDonations.filter((d) => d.ngoName === donationNGOFilter)
-    }
-
-    // Filter by date range (deliveryDate)
-    if (startDate && endDate) {
-      const start = new Date(startDate)
-      const end = new Date(endDate)
-      filteredDonations = filteredDonations.filter(d => {
-        const deliveryDate = new Date(d.deliveryDate)
-        return deliveryDate >= start && deliveryDate <= end
-      })
-    }
-
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Total Donations: ${filteredDonations.length}`, 14, yPos)
-    yPos += 7
-    const totalItems = filteredDonations.reduce((sum, d) => sum + (d.quantity || 0), 0)
-    doc.text(`Total Items: ${totalItems}`, 14, yPos)
-    yPos += 10
-
-    doc.setFont('helvetica', 'bold')
-    doc.text('Donation Details', 14, yPos)
-    yPos += 7
-    doc.setFont('helvetica', 'normal')
-
-    filteredDonations.slice(0, 50).forEach((donation: any) => {
-      if (yPos > 280) {
-        doc.addPage()
-        yPos = 20
-      }
-      doc.text(`ID: ${donation.id}`, 14, yPos)
-      yPos += 5
-      doc.text(`  Merchant: ${donation.merchantName} → NGO: ${donation.ngoName}`, 14, yPos)
-      yPos += 5
-      doc.text(`  Items: ${donation.items.join(', ')}`, 14, yPos)
-      yPos += 5
-      doc.text(`  Quantity: ${donation.quantity} | Delivery: ${format(new Date(donation.deliveryDate), 'MMM dd, yyyy')}`, 14, yPos)
-      yPos += 7
-    })
-  }
-
   // Don't render button for profile page
   if (pageContext === 'profile') {
     return null
   }
 
-  // Get unique merchants and NGOs for filters (from provided page data)
-  const donationData: any[] =
-    pageContext === 'donations' && Array.isArray(data) ? data : []
-  const uniqueMerchants = Array.from(
-    new Set(donationData.map((d) => d.merchantName).filter(Boolean)),
-  )
-  const uniqueNGOs = Array.from(
-    new Set(donationData.map((d) => d.ngoName).filter(Boolean)),
-  )
-
-  const modalTitles = {
+  const modalTitles: Record<'dashboard' | 'users', string> = {
     dashboard: 'Generate System Report',
     users: 'Generate User Report',
-    donations: 'Generate Donation Report',
   }
 
   return (
@@ -316,8 +418,10 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
 
       {/* Generate Report Button */}
       <button
+        type="button"
+        disabled={isGenerating}
         onClick={() => setShowModal(true)}
-        className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors"
+        className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <FileText className="w-4 h-4" />
         Generate Report
@@ -330,8 +434,10 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">{modalTitles[pageContext]}</h3>
               <button
+                type="button"
+                disabled={isGenerating}
                 onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-40"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -397,10 +503,8 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
                     {[
                       { key: 'totalConsumers', label: 'Total Consumers' },
                       { key: 'totalMerchants', label: 'Total Merchants' },
-                      { key: 'totalNGOs', label: 'Total NGOs Served' },
                       { key: 'totalOrders', label: 'Total Orders Completed' },
                       { key: 'ordersTrend', label: 'Orders Trend' },
-                      { key: 'donationTrend', label: 'Donation Trend' },
                     ].map((metric) => (
                       <label key={metric.key} className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -436,7 +540,6 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
                       <option value="all">All Users</option>
                       <option value="consumer">Consumers</option>
                       <option value="merchant">Merchants</option>
-                      <option value="ngo">NGOs</option>
                     </select>
                   </div>
 
@@ -458,56 +561,19 @@ export function GenerateReportButton({ pageContext, data }: GenerateReportButton
                 </>
               )}
 
-              {/* Donations-specific: Filters */}
-              {pageContext === 'donations' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Merchant Filter (Optional)
-                    </label>
-                    <select
-                      value={donationMerchantFilter}
-                      onChange={(e) => setDonationMerchantFilter(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                    >
-                      <option value="all">All Merchants</option>
-                      {uniqueMerchants.map((merchant) => (
-                        <option key={merchant} value={merchant}>
-                          {merchant}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      NGO Filter (Optional)
-                    </label>
-                    <select
-                      value={donationNGOFilter}
-                      onChange={(e) => setDonationNGOFilter(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-                    >
-                      <option value="all">All NGOs</option>
-                      {uniqueNGOs.map((ngo) => (
-                        <option key={ngo} value={ngo}>
-                          {ngo}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              )}
             </div>
 
             <div className="flex gap-3 justify-end mt-6">
               <button
+                type="button"
+                disabled={isGenerating}
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={handleGenerateReport}
                 disabled={isGenerating}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"

@@ -262,12 +262,6 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             icon: Icon(Icons.receipt_long, color: AppColors.primary),
             tooltip: 'Orders',
           ),
-
-          IconButton(
-            onPressed: () => context.push('/donation-prompt'),
-            icon: const Icon(Icons.volunteer_activism, color: Colors.green),
-            tooltip: 'Donate',
-          ),
         ],
       ),
     );

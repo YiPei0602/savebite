@@ -2,14 +2,12 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
-  HeartHandshake,
   User,
 } from 'lucide-react'
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
   { icon: Users, label: 'Users', path: '/users' },
-  { icon: HeartHandshake, label: 'Donations', path: '/donations' },
   { icon: User, label: 'Profile', path: '/profile' },
 ]
 

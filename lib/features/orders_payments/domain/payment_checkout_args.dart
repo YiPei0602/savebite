@@ -1,9 +1,9 @@
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 
-/// Carries checkout state from [CheckoutScreen] → [MockPaymentScreen] → order creation.
-class MockPaymentCheckoutArgs {
-  const MockPaymentCheckoutArgs({
+/// Carries checkout state from [CheckoutScreen] → [PaymentScreen] → order creation.
+class PaymentCheckoutArgs {
+  const PaymentCheckoutArgs({
     required this.userId,
     required this.merchantId,
     required this.merchantName,

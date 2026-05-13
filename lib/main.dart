@@ -14,7 +14,6 @@ import 'features/marketplace_surplus/state/providers/food_provider.dart';
 import 'features/orders_payments/state/providers/cart_provider.dart';
 import 'features/orders_payments/state/providers/order_provider.dart';
 import 'features/marketplace_surplus/state/providers/merchant_provider.dart';
-import 'features/donations/state/providers/donation_provider.dart';
 
 /// SaveBite - Food Rescue Platform
 ///
@@ -53,7 +52,6 @@ class SaveBiteApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
         ChangeNotifierProvider(create: (_) => MerchantProvider()..loadMerchants()),
-        ChangeNotifierProvider(create: (_) => DonationProvider()),
       ],
       child: const _AppShell(),
     );

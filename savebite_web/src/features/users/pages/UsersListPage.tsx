@@ -150,13 +150,13 @@ export function UsersListPage() {
   }
 
   const getRoleBadge = (role: string) => {
-    const styles = {
+    const styles: Record<string, string> = {
       consumer: 'bg-blue-100 text-blue-800',
       merchant: 'bg-purple-100 text-purple-800',
-      ngo: 'bg-orange-100 text-orange-800',
     }
+    const cls = styles[role] ?? 'bg-gray-100 text-gray-800'
     return (
-      <span className={`px-2 py-1 text-xs font-medium rounded-full ${styles[role as keyof typeof styles]}`}>
+      <span className={`px-2 py-1 text-xs font-medium rounded-full ${cls}`}>
         {role.charAt(0).toUpperCase() + role.slice(1)}
       </span>
     )
@@ -229,7 +229,6 @@ export function UsersListPage() {
               <option value="all">All Roles</option>
               <option value="consumer">Consumer</option>
               <option value="merchant">Merchant</option>
-              <option value="ngo">NGO</option>
             </select>
           </div>
 

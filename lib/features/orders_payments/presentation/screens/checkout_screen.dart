@@ -5,7 +5,7 @@ import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/orders_payments/domain/checkout_payment_method_key.dart';
-import 'package:savebite/features/orders_payments/domain/mock_payment_checkout_args.dart';
+import 'package:savebite/features/orders_payments/domain/payment_checkout_args.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
@@ -219,7 +219,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         )
         .toList(growable: false);
 
-    final args = MockPaymentCheckoutArgs(
+    final args = PaymentCheckoutArgs(
       userId: userId,
       merchantId: merchantId,
       merchantName: merchantName,
@@ -248,7 +248,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           : null,
     );
 
-    context.push('/mock-payment', extra: args);
+    context.push('/payment', extra: args);
   }
 
   @override

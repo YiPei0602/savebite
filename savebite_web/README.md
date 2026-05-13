@@ -19,7 +19,6 @@ npm run build
 
 - **Dashboard** - System overview with statistics and charts
 - **User Management** - Search, filter, activate, suspend, and delete users
-- **Donation Records** - View donations and generate PDF reports
 - **Reports** - Generate and export system reports
 - **Profile** - Manage admin profile and password
 
@@ -43,8 +42,6 @@ src/
 │   ├── auth/         # Authentication
 │   ├── dashboard/    # Dashboard
 │   ├── users/        # User management
-│   ├── donations/    # Donation records
-│   ├── reports/      # Reports
 │   └── profile/      # Admin profile
 ├── shared/           # Shared components & utilities
 └── core/             # Core configuration
