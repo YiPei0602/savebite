@@ -59,8 +59,18 @@ flutter run -d macos
 # Android
 flutter run -d android
 
-# iOS
+# iOS (recommended if you have multiple simulators with the same name, e.g. several "iPhone 17")
+chmod +x scripts/run_ios_sim.sh
+./scripts/run_ios_sim.sh --dart-define=GOOGLE_PLACES_API_KEY=your_key_here
+
+# iOS (generic; may fail if `-d "iPhone 17"` resolves to a simulator runtime Xcode cannot build)
 flutter run -d ios
+```
+
+**If Xcode says “Unable to find a destination”, “iOS 26.x is not installed”, or Stripe / actool errors like** `No simulator runtime version from ["23B86", …] available to use with iphonesimulator SDK version 23F73`: the **Simulator SDK build** (here **23F73** = iOS 26.5) must match an **installed simulator runtime** build. Older runtimes only (**23B86**, **23C54**, **23E244**, …) are not enough — install the **iOS Simulator** that matches this Xcode (**Xcode → Settings → Platforms**, or `xcodebuild -downloadPlatform iOS`).
+
+```bash
+./scripts/assert_ios_simulator_runtime.sh   # compares SDK vs simctl runtime build IDs
 ```
 
 ---

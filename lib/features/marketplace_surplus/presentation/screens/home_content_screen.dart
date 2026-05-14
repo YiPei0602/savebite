@@ -121,19 +121,19 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
         child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
+            padding:
+                const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: AppConstants.paddingS),
                 Consumer<FoodProvider>(
                   builder: (context, foodProvider, _) {
-                    final current =
-                        (foodProvider.selectedLocation != null &&
-                                _supportedLocations
-                                    .contains(foodProvider.selectedLocation))
-                            ? foodProvider.selectedLocation!
-                            : 'Penang';
+                    final current = (foodProvider.selectedLocation != null &&
+                            _supportedLocations
+                                .contains(foodProvider.selectedLocation))
+                        ? foodProvider.selectedLocation!
+                        : 'Penang';
 
                     return _GreetingHeader(
                       location: current,
@@ -173,7 +173,8 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                   builder: (context, foodProvider, merchantProvider, _) {
                     if (foodProvider.isLoading || merchantProvider.isLoading) {
                       return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: AppConstants.paddingL),
+                        padding: EdgeInsets.symmetric(
+                            vertical: AppConstants.paddingL),
                         child: _PremiumLoadingState(),
                       );
                     }
@@ -225,7 +226,8 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                         title: 'No recommendations yet',
                         subtitle:
                             'Surplus deals will appear here once merchants publish listings.',
-                        onExploreTap: () => context.push('/category/mysteryBag'),
+                        onExploreTap: () =>
+                            context.push('/category/mysteryBag'),
                       );
                     }
 
@@ -241,9 +243,8 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                               merchantProfile: mFor(item.merchantId),
                               fromFoodItem: item.merchantName,
                             ),
-                            unavailable:
-                                isConsumerListingUnavailableForDisplay(
-                                    item, now),
+                            unavailable: isConsumerListingUnavailableForDisplay(
+                                item, now),
                             onTap: () => context.push(
                               '/merchant/${item.merchantId}/item/${item.id}',
                               extra: item,
@@ -296,8 +297,9 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                     style: AppTypography.bodyMedium.copyWith(
                       fontWeight:
                           isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color:
-                          isSelected ? AppColors.primary : AppColors.textPrimary,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textPrimary,
                     ),
                   ),
                   trailing: isSelected
@@ -773,7 +775,8 @@ class _StoreCard extends StatelessWidget {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          const Icon(Icons.star, size: 14, color: AppColors.warning),
+                          const Icon(Icons.star,
+                              size: 14, color: AppColors.warning),
                           const SizedBox(width: 4),
                           Text(
                             '${item.rating ?? 4.5}',
@@ -783,7 +786,8 @@ class _StoreCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 10),
-                          const Icon(Icons.place, size: 14, color: _homeSecondaryGrey),
+                          const Icon(Icons.place,
+                              size: 14, color: _homeSecondaryGrey),
                           const SizedBox(width: 4),
                           Text(
                             '— km',
@@ -994,7 +998,8 @@ class _WideDealCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Row(
                         children: [
-                          const Icon(Icons.star, size: 14, color: AppColors.warning),
+                          const Icon(Icons.star,
+                              size: 14, color: AppColors.warning),
                           const SizedBox(width: 4),
                           Text(
                             '${item.rating ?? 4.5}',
@@ -1171,7 +1176,8 @@ class _PremiumLoadingStateState extends State<_PremiumLoadingState>
                       color: AppColors.surface,
                       borderRadius: BorderRadius.circular(AppConstants.radiusL),
                       boxShadow: _elevationLow,
-                      border: Border.all(color: AppColors.border.withOpacity(0.5)),
+                      border:
+                          Border.all(color: AppColors.border.withOpacity(0.5)),
                     ),
                     child: Column(
                       children: [
@@ -1373,4 +1379,3 @@ class _InlineErrorState extends StatelessWidget {
     );
   }
 }
-

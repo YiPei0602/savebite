@@ -234,6 +234,31 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         ? 'Self-Pickup'
                         : 'Delivery',
                   ),
+                  if (order.fulfillmentType == FulfillmentType.delivery) ...[
+                    const SizedBox(height: AppConstants.paddingM),
+                    Text('Rider', style: AppTypography.h5),
+                    const SizedBox(height: AppConstants.paddingS),
+                    if ((order.riderName ?? '').isEmpty &&
+                        (order.riderPhone ?? '').isEmpty &&
+                        (order.riderVehicleInfo ?? '').isEmpty &&
+                        (order.riderNote ?? '').isEmpty)
+                      Text(
+                        'The store has not added rider details yet.',
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      )
+                    else ...[
+                      if ((order.riderName ?? '').isNotEmpty)
+                        _buildDetailRow('Name', order.riderName!),
+                      if ((order.riderPhone ?? '').isNotEmpty)
+                        _buildDetailRow('Phone', order.riderPhone!),
+                      if ((order.riderVehicleInfo ?? '').isNotEmpty)
+                        _buildDetailRow('Vehicle', order.riderVehicleInfo!),
+                      if ((order.riderNote ?? '').isNotEmpty)
+                        _buildDetailRow('Note', order.riderNote!),
+                    ],
+                  ],
                   const SizedBox(height: AppConstants.paddingL),
                   Text('Items Ordered', style: AppTypography.h5),
                   const SizedBox(height: AppConstants.paddingM),

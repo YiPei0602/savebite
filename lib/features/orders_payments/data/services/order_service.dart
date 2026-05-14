@@ -1,3 +1,5 @@
+import 'dart:math' show max;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
@@ -16,6 +18,7 @@ class OrderService {
   static const String _collection = 'orders';
   static const String _foodCollection = 'food_items';
   static const String _merchantCollection = 'merchants';
+  static const String _stockReservationsCollection = 'stock_reservations';
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   static String _paymentStatusString(PaymentStatus s) =>
@@ -85,8 +88,23 @@ class OrderService {
 
     final checkoutNow = DateTime.now();
 
+    final reservationRefs = await _reservationRefsForPaidOrder(
+      userId: userId,
+      items: items,
+    );
+
     await _firestore.runTransaction((tx) async {
-      // Snapshot merchant coordinates at order creation time.
+      final Map<String, int> releaseReservedByFood = {};
+      for (final ref in reservationRefs) {
+        final resSnap = await tx.get(ref);
+        if (!resSnap.exists || resSnap.data() == null) continue;
+        final rd = resSnap.data()!;
+        final fid = rd['foodItemId'] as String? ?? '';
+        final rq = (rd['reservedQuantity'] as num?)?.toInt() ?? 0;
+        if (fid.isEmpty || rq < 1) continue;
+        releaseReservedByFood[fid] = (releaseReservedByFood[fid] ?? 0) + rq;
+      }
+
       double? merchantLat;
       double? merchantLng;
       try {
@@ -100,31 +118,56 @@ class OrderService {
         // Best-effort: distance/ETA will be unavailable if coords are missing.
       }
 
+      final qtyByFood = <String, int>{};
+      final nameByFood = <String, String>{};
       for (final item in items) {
-        final foodId = item.foodItem.id;
-        final qty = item.quantity;
-        final foodRef = _firestore.collection(_foodCollection).doc(foodId);
-        final foodSnap = await tx.get(foodRef);
-        final foodData = foodSnap.data();
-        if (!foodSnap.exists || foodData == null) {
+        final id = item.foodItem.id;
+        qtyByFood[id] = (qtyByFood[id] ?? 0) + item.quantity;
+        nameByFood[id] = item.foodItem.name;
+      }
+
+      final foodSnaps = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+      for (final foodId in qtyByFood.keys) {
+        foodSnaps[foodId] = await tx.get(
+          _firestore.collection(_foodCollection).doc(foodId),
+        );
+      }
+
+      for (final entry in qtyByFood.entries) {
+        final foodId = entry.key;
+        final qty = entry.value;
+        final name = nameByFood[foodId] ?? 'item';
+        final foodSnap = foodSnaps[foodId];
+        final foodData = foodSnap?.data();
+        if (foodSnap == null || !foodSnap.exists || foodData == null) {
           throw Exception('An item in your cart is no longer available.');
         }
         final statusStr = (foodData['status'] as String?) ?? 'active';
         if (statusStr != 'active') {
-          throw Exception('${item.foodItem.name} is no longer available.');
+          throw Exception('$name is no longer available.');
         }
         final closing = _closingTimeFromFoodData(foodData);
         if (closing == null || !checkoutNow.isBefore(closing)) {
-          throw Exception('Pickup window for ${item.foodItem.name} has ended.');
+          throw Exception('Pickup window for $name has ended.');
         }
         final currentStock = (foodData['stock'] as num?)?.toInt() ?? 0;
-        if (currentStock < qty) {
-          throw Exception('Not enough stock for ${item.foodItem.name}.');
+        final reservedAgg = (foodData['reservedStock'] as num?)?.toInt() ?? 0;
+        final released = releaseReservedByFood[foodId] ?? 0;
+        final reservedByOthers = max(0, reservedAgg - released);
+        final availableForThisOrder = currentStock - reservedByOthers;
+        if (availableForThisOrder < qty) {
+          throw Exception('Not enough stock for $name.');
         }
-        tx.update(foodRef, {
+        final newReserved = max(0, reservedAgg - released);
+        tx.update(foodSnap.reference, {
           'stock': currentStock - qty,
+          'reservedStock': newReserved,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+      }
+
+      for (final ref in reservationRefs) {
+        tx.delete(ref);
       }
 
       final payload = <String, dynamic>{
@@ -145,6 +188,27 @@ class OrderService {
     return order;
   }
 
+  Future<List<DocumentReference<Map<String, dynamic>>>>
+      _reservationRefsForPaidOrder({
+    required String userId,
+    required List<CartItemModel> items,
+  }) async {
+    final foodIds = items.map((e) => e.foodItem.id).toSet();
+    if (foodIds.isEmpty) return [];
+
+    final ts = Timestamp.now();
+    final snap = await _firestore
+        .collection(_stockReservationsCollection)
+        .where('userId', isEqualTo: userId)
+        .where('expirationTimestamp', isGreaterThan: ts)
+        .get();
+
+    return snap.docs
+        .where((d) => foodIds.contains(d.data()['foodItemId'] as String?))
+        .map((d) => d.reference)
+        .toList(growable: false);
+  }
+
   Future<OrderModel?> getOrderById(String orderId) async {
     final doc = await _firestore.collection(_collection).doc(orderId).get();
     final data = doc.data();
@@ -154,12 +218,47 @@ class OrderService {
 
   /// Real-time updates for a single order document.
   Stream<OrderModel?> watchOrderById(String orderId) {
-    return _firestore.collection(_collection).doc(orderId).snapshots().map((doc) {
+    return _firestore
+        .collection(_collection)
+        .doc(orderId)
+        .snapshots()
+        .map((doc) {
       if (!doc.exists) return null;
       final data = doc.data();
       if (data == null) return null;
       return _fromFirestore(data, doc.id);
     });
+  }
+
+  static String? _optionalTrim(String? s) {
+    final t = s?.trim();
+    if (t == null || t.isEmpty) return null;
+    return t;
+  }
+
+  /// Merchant-only rider/partner details for manual third-party delivery handoff.
+  Future<OrderModel> updateOrderRiderDetails({
+    required String orderId,
+    String? riderName,
+    String? riderPhone,
+    String? riderVehicleInfo,
+    String? riderNote,
+  }) async {
+    final docRef = _firestore.collection(_collection).doc(orderId);
+    await docRef.set(
+      <String, dynamic>{
+        'riderName': _optionalTrim(riderName),
+        'riderPhone': _optionalTrim(riderPhone),
+        'riderVehicleInfo': _optionalTrim(riderVehicleInfo),
+        'riderNote': _optionalTrim(riderNote),
+        'riderUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    final updated = await getOrderById(orderId);
+    if (updated == null) throw Exception('Order not found');
+    return updated;
   }
 
   /// Updates driver location fields (demo / tracking).
@@ -183,7 +282,8 @@ class OrderService {
     final snap = await _firestore
         .collection(_collection)
         .where('userId', isEqualTo: userId)
-        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
+        .where('paymentStatus',
+            isEqualTo: _paymentStatusString(PaymentStatus.paid))
         .orderBy('createdAt', descending: true)
         .limit(100)
         .get();
@@ -194,11 +294,13 @@ class OrderService {
     final snap = await _firestore
         .collection(_collection)
         .where('merchantId', isEqualTo: merchantId)
-        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
-        .orderBy('createdAt', descending: true)
-        .limit(100)
         .get();
-    return snap.docs.map((d) => _fromFirestore(d.data(), d.id)).toList();
+    final orders = snap.docs
+        .map((d) => _fromFirestore(d.data(), d.id))
+        .where((o) => o.paymentStatus == PaymentStatus.paid)
+        .toList();
+    orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return orders.take(100).toList(growable: false);
   }
 
   Stream<List<OrderModel>> watchOrdersByMerchant(
@@ -208,12 +310,15 @@ class OrderService {
     return _firestore
         .collection(_collection)
         .where('merchantId', isEqualTo: merchantId)
-        .where('paymentStatus', isEqualTo: _paymentStatusString(PaymentStatus.paid))
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
         .snapshots()
-        .map((snap) =>
-            snap.docs.map((d) => _fromFirestore(d.data(), d.id)).toList());
+        .map((snap) {
+      final orders = snap.docs
+          .map((d) => _fromFirestore(d.data(), d.id))
+          .where((o) => o.paymentStatus == PaymentStatus.paid)
+          .toList();
+      orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return orders.take(limit).toList(growable: false);
+    });
   }
 
   Future<List<OrderModel>> getActiveOrders(String userId) async {
@@ -254,7 +359,8 @@ class OrderService {
     }
   }
 
-  static void assertValidStatusTransition(OrderModel existing, OrderStatus newStatus) {
+  static void assertValidStatusTransition(
+      OrderModel existing, OrderStatus newStatus) {
     final current = existing.orderStatus;
     if (current == newStatus) {
       return;
@@ -324,16 +430,15 @@ class OrderService {
     normalized['deliveryFee'] = normalized['deliveryFee'] ?? 0;
     normalized['totalPrice'] = normalized['totalPrice'] ?? 0;
     normalized['totalSavings'] = normalized['totalSavings'] ?? 0;
-    normalized['orderStatus'] = normalized['orderStatus'] ??
-        normalized['status'] ??
-        'pending';
+    normalized['orderStatus'] =
+        normalized['orderStatus'] ?? normalized['status'] ?? 'pending';
     normalized['fulfillmentType'] = normalized['fulfillmentType'] ?? 'pickup';
     normalized['paymentMethod'] = normalized['paymentMethod'] ?? 'cash';
     normalized['paymentStatus'] = normalized['paymentStatus'] ?? 'paid';
     normalized['currency'] = normalized['currency'] ?? 'myr';
     normalized['items'] = normalized['items'] ?? <dynamic>[];
-    normalized['createdAt'] = normalized['createdAt'] ??
-        Timestamp.fromDate(DateTime.now());
+    normalized['createdAt'] =
+        normalized['createdAt'] ?? Timestamp.fromDate(DateTime.now());
 
     return OrderModel.fromJson(normalized);
   }

@@ -9,6 +9,8 @@ import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/auth_profile_impact/presentation/screens/profile_screen.dart';
 import 'package:savebite/features/merchant_management/presentation/screens/merchant_dashboard_screen.dart';
 import 'package:savebite/features/merchant_management/presentation/screens/merchant_orders_screen.dart';
+import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
+import 'package:savebite/features/orders_payments/state/providers/order_provider.dart';
 
 /// Merchant main shell with bottom navigation (Home / Orders / Profile).
 ///
@@ -36,13 +38,6 @@ class _MerchantShellScreenState extends State<MerchantShellScreen> {
       _currentIndex = widget.initialTabIndex.clamp(0, 2);
     }
   }
-
-  /// Same tab order and widgets as consumer [HomeScreen], except Home is merchant dashboard.
-  final List<Widget> _screens = const [
-    MerchantDashboardScreen(),
-    MerchantOrdersScreen(showBackButton: false),
-    ProfileScreen(),
-  ];
 
   @override
   void initState() {
@@ -72,8 +67,22 @@ class _MerchantShellScreenState extends State<MerchantShellScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final merchantId =
+        context.watch<AuthProvider>().currentUser?.merchantId ??
+            context.watch<AuthProvider>().currentUser?.id;
+
     return Scaffold(
-      body: _screens[_currentIndex],
+      // Keep Orders (and merchant stream/notifications) alive while on Home tab.
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          MerchantDashboardScreen(
+            onGoToOrdersTab: () => setState(() => _currentIndex = 1),
+          ),
+          const MerchantOrdersScreen(showBackButton: false),
+          const ProfileScreen(),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
@@ -85,21 +94,67 @@ class _MerchantShellScreenState extends State<MerchantShellScreen> {
           fontWeight: FontWeight.w600,
         ),
         unselectedLabelStyle: AppTypography.caption,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.home),
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.receipt_long),
+            icon: MerchantOrdersTabIconWithBadge(
+              merchantId: merchantId ?? '',
+              isSelected: _currentIndex == 1,
+            ),
             label: 'Orders',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Orders icon with badge count for unpaid orders awaiting acceptance.
+class MerchantOrdersTabIconWithBadge extends StatelessWidget {
+  const MerchantOrdersTabIconWithBadge({
+    super.key,
+    required this.merchantId,
+    required this.isSelected,
+  });
+
+  final String merchantId;
+  final bool isSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color =
+        isSelected ? AppColors.primary : AppColors.textSecondary;
+    if (merchantId.isEmpty) {
+      return Icon(Icons.receipt_long, color: color);
+    }
+    final orderProvider = context.read<OrderProvider>();
+    return StreamBuilder<List<OrderModel>>(
+      stream: orderProvider.watchMerchantOrders(merchantId),
+      builder: (context, snapshot) {
+        final orders = snapshot.data ?? const <OrderModel>[];
+        final pendingAccept = orders
+            .where((o) =>
+                o.orderStatus == OrderStatus.pending &&
+                o.paymentStatus == PaymentStatus.paid)
+            .length;
+        if (pendingAccept <= 0) {
+          return Icon(Icons.receipt_long, color: color);
+        }
+        return Badge(
+          label: Text(
+            pendingAccept > 9 ? '9+' : '$pendingAccept',
+            style: const TextStyle(fontSize: 10),
+          ),
+          child: Icon(Icons.receipt_long, color: color),
+        );
+      },
     );
   }
 }

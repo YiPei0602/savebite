@@ -122,6 +122,13 @@ class AppConstants {
   static const int maxDescriptionLength = 500;
 
   // ============================================================================
+  // CHECKOUT — STOCK RESERVATION (Cloud Function TTL)
+  // ============================================================================
+
+  /// Default checkout hold length in minutes (must stay within server bounds 3–15).
+  static const int stockReservationTtlMinutes = 10;
+
+  // ============================================================================
   // PAGINATION
   // ============================================================================
   static const int itemsPerPage = 20;

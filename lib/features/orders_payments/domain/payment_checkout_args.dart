@@ -18,6 +18,7 @@ class PaymentCheckoutArgs {
     required this.paymentMethodLabelKey,
     required this.isSelfPickup,
     required this.cartItemsForTracking,
+    required this.reservationExpiresAt,
     this.deliveryAddress,
     this.pickupAddress,
     this.deliveryLatitude,
@@ -40,6 +41,8 @@ class PaymentCheckoutArgs {
   final String paymentMethodLabelKey;
   final bool isSelfPickup;
   final Map<String, Map<String, dynamic>> cartItemsForTracking;
+  /// UTC instant when the active stock reservation ends (server [expiresAt]).
+  final DateTime reservationExpiresAt;
   final String? deliveryAddress;
   final String? pickupAddress;
   final double? deliveryLatitude;

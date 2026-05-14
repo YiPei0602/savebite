@@ -36,6 +36,12 @@ class OrderModel {
   /// Delivery tracking (optional). Expected to be updated while order is `onTheWay`.
   final double? driverLatitude;
   final double? driverLongitude;
+  /// Merchant-entered rider/delivery partner contact (manual dispatch; no third-party API).
+  final String? riderName;
+  final String? riderPhone;
+  final String? riderVehicleInfo;
+  final String? riderNote;
+  final DateTime? riderUpdatedAt;
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? completedAt;
@@ -66,6 +72,11 @@ class OrderModel {
     this.merchantLongitude,
     this.driverLatitude,
     this.driverLongitude,
+    this.riderName,
+    this.riderPhone,
+    this.riderVehicleInfo,
+    this.riderNote,
+    this.riderUpdatedAt,
     required this.createdAt,
     this.updatedAt,
     this.completedAt,
@@ -114,6 +125,20 @@ class OrderModel {
       merchantLongitude: (json['merchantLongitude'] as num?)?.toDouble(),
       driverLatitude: (json['driverLatitude'] as num?)?.toDouble(),
       driverLongitude: (json['driverLongitude'] as num?)?.toDouble(),
+      riderName: (json['riderName'] as String?)?.trim().isNotEmpty == true
+          ? (json['riderName'] as String).trim()
+          : null,
+      riderPhone: (json['riderPhone'] as String?)?.trim().isNotEmpty == true
+          ? (json['riderPhone'] as String).trim()
+          : null,
+      riderVehicleInfo:
+          (json['riderVehicleInfo'] as String?)?.trim().isNotEmpty == true
+              ? (json['riderVehicleInfo'] as String).trim()
+              : null,
+      riderNote: (json['riderNote'] as String?)?.trim().isNotEmpty == true
+          ? (json['riderNote'] as String).trim()
+          : null,
+      riderUpdatedAt: dateTimeFromFirestore(json['riderUpdatedAt']),
       createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
       updatedAt: dateTimeFromFirestore(json['updatedAt']),
       completedAt: dateTimeFromFirestore(json['completedAt']),
@@ -147,6 +172,11 @@ class OrderModel {
       'merchantLongitude': merchantLongitude,
       'driverLatitude': driverLatitude,
       'driverLongitude': driverLongitude,
+      'riderName': riderName,
+      'riderPhone': riderPhone,
+      'riderVehicleInfo': riderVehicleInfo,
+      'riderNote': riderNote,
+      'riderUpdatedAt': timestampFromDateTime(riderUpdatedAt),
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': timestampFromDateTime(updatedAt),
       'completedAt': timestampFromDateTime(completedAt),
@@ -179,6 +209,11 @@ class OrderModel {
     double? merchantLongitude,
     double? driverLatitude,
     double? driverLongitude,
+    String? riderName,
+    String? riderPhone,
+    String? riderVehicleInfo,
+    String? riderNote,
+    DateTime? riderUpdatedAt,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? completedAt,
@@ -209,6 +244,11 @@ class OrderModel {
       merchantLongitude: merchantLongitude ?? this.merchantLongitude,
       driverLatitude: driverLatitude ?? this.driverLatitude,
       driverLongitude: driverLongitude ?? this.driverLongitude,
+      riderName: riderName ?? this.riderName,
+      riderPhone: riderPhone ?? this.riderPhone,
+      riderVehicleInfo: riderVehicleInfo ?? this.riderVehicleInfo,
+      riderNote: riderNote ?? this.riderNote,
+      riderUpdatedAt: riderUpdatedAt ?? this.riderUpdatedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,

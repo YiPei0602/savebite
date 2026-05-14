@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -23,8 +24,10 @@ class FoodService {
 
   static const String _collection = 'food_items';
   static const String _merchantCollection = 'merchants';
-  static const String _storageBucket = 'gs://savebite-1fd01.firebasestorage.app';
-  static const String _storageBucketFallback = 'gs://savebite-1fd01.appspot.com';
+  static const String _storageBucket =
+      'gs://savebite-1fd01.firebasestorage.app';
+  static const String _storageBucketFallback =
+      'gs://savebite-1fd01.appspot.com';
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseStorage _storage =
@@ -56,6 +59,30 @@ class FoodService {
         .toList(growable: true)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return active.take(80).toList(growable: false);
+  }
+
+  /// Realtime consumer catalog stream (effective availability includes reserved stock).
+  Stream<List<FoodItemModel>> watchAllFoodItems() {
+    return _firestore
+        .collection(_collection)
+        .orderBy('createdAt', descending: true)
+        .limit(_consumerFetchCap)
+        .snapshots()
+        .asyncMap((snap) async {
+      final now = DateTime.now();
+      final merchantIds = snap.docs
+          .map((d) => d.data()['merchantId'] as String?)
+          .whereType<String>()
+          .toSet();
+      final merchants = await _fetchMerchantsByIds(merchantIds);
+      await _expireActivePastClosingInDocs(snap.docs, now, merchants);
+      final active = snap.docs
+          .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
+          .where((item) => item.isConsumerVisibleNow(now))
+          .toList(growable: true)
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return active.take(80).toList(growable: false);
+    });
   }
 
   /// Get food items by category
@@ -118,7 +145,7 @@ class FoodService {
   Future<FoodItemModel?> getFoodItemById(String id) async {
     final doc = await _firestore.collection(_collection).doc(id).get();
     if (!doc.exists || doc.data() == null) return null;
-    return _fromDoc(doc);
+    return _fromDocForConsumerCatalog(doc, DateTime.now());
   }
 
   /// Create new food item (Merchant only)
@@ -172,8 +199,8 @@ class FoodService {
       );
     }
 
-    final data =
-        _toFirestore(item, id: docRef.id, imageUrl: imageUrl, includeCreatedAt: true);
+    final data = _toFirestore(item,
+        id: docRef.id, imageUrl: imageUrl, includeCreatedAt: true);
     debugPrint('[FoodService] Creating Firestore doc ${docRef.id}...');
     try {
       await docRef.set(data).timeout(const Duration(seconds: 12));
@@ -230,7 +257,8 @@ class FoodService {
     }
 
     await docRef.update({
-      ..._toFirestore(item, id: item.id, imageUrl: imageUrl, includeCreatedAt: false),
+      ..._toFirestore(item,
+          id: item.id, imageUrl: imageUrl, includeCreatedAt: false),
       'updatedAt': FieldValue.serverTimestamp(),
     });
     return item.copyWith(imageUrl: imageUrl, updatedAt: DateTime.now());
@@ -264,9 +292,10 @@ class FoodService {
     final effectiveNow = now ?? DateTime.now();
     final merchantDoc =
         await _firestore.collection(_merchantCollection).doc(merchantId).get();
-    final MerchantModel? merchant = merchantDoc.exists && merchantDoc.data() != null
-        ? MerchantModel.fromFirestore(merchantDoc.data()!, merchantDoc.id)
-        : null;
+    final MerchantModel? merchant =
+        merchantDoc.exists && merchantDoc.data() != null
+            ? MerchantModel.fromFirestore(merchantDoc.data()!, merchantDoc.id)
+            : null;
 
     final snap = await _firestore
         .collection(_collection)
@@ -323,7 +352,8 @@ class FoodService {
     return true;
   }
 
-  Future<Map<String, MerchantModel?>> _fetchMerchantsByIds(Set<String> ids) async {
+  Future<Map<String, MerchantModel?>> _fetchMerchantsByIds(
+      Set<String> ids) async {
     final out = <String, MerchantModel?>{};
     if (ids.isEmpty) return out;
     final list = ids.toList(growable: false);
@@ -381,17 +411,29 @@ class FoodService {
     DateTime now, {
     Map<String, MerchantModel?>? merchants,
   }) {
-    final item = _fromDoc(doc);
-    if (item.listingStatus != ListingStatus.active) return item;
+    final out = _withConsumerAvailableStock(doc);
+    if (out.listingStatus != ListingStatus.active) return out;
 
-    final m = merchants?[item.merchantId];
+    final m = merchants?[out.merchantId];
     if (isListingPastStoreSessionMalaysia(m)) {
-      return item.copyWith(listingStatus: ListingStatus.expired, isAvailable: false);
+      return out.copyWith(
+          listingStatus: ListingStatus.expired, isAvailable: false);
     }
-    if (!now.isBefore(item.closingTime)) {
-      return item.copyWith(listingStatus: ListingStatus.expired, isAvailable: false);
+    if (!now.isBefore(out.closingTime)) {
+      return out.copyWith(
+          listingStatus: ListingStatus.expired, isAvailable: false);
     }
-    return item;
+    return out;
+  }
+
+  FoodItemModel _withConsumerAvailableStock(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? <String, dynamic>{};
+    final item = _fromDoc(doc);
+    final physical = (data['stock'] as num?)?.toInt() ?? item.stock;
+    final reserved = (data['reservedStock'] as num?)?.toInt() ?? 0;
+    return item.copyWith(stock: max(0, physical - reserved));
   }
 
   /// Marks expired listings as hidden from merchant dashboard (Firestore only; does not delete).
@@ -416,7 +458,8 @@ class FoodService {
       final data = doc.data();
       final status = ListingStatus.fromFirestore(data['status'] as String?);
       if (status != ListingStatus.expired) continue;
-      final dismissed = data['dismissedFromMerchantDashboard'] as bool? ?? false;
+      final dismissed =
+          data['dismissedFromMerchantDashboard'] as bool? ?? false;
       if (dismissed) continue;
 
       batch.update(doc.reference, {
@@ -433,13 +476,12 @@ class FoodService {
 
   FoodItemModel _fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
-    final createdAt =
-        dateTimeFromFirestoreWithDefault(data['createdAt']);
+    final createdAt = dateTimeFromFirestoreWithDefault(data['createdAt']);
     final updatedAt = dateTimeFromFirestore(data['updatedAt']);
-    final closingTime =
-        dateTimeFromFirestoreWithDefault(data['closingTime']);
+    final closingTime = dateTimeFromFirestoreWithDefault(data['closingTime']);
 
-    final categoryStr = (data['category'] as String?) ?? FoodCategory.other.name;
+    final categoryStr =
+        (data['category'] as String?) ?? FoodCategory.other.name;
     final categoriesStr = (data['categories'] as List<dynamic>?)
             ?.whereType<String>()
             .toList(growable: false) ??
@@ -455,7 +497,8 @@ class FoodService {
 
     final category = FoodCategory.values.firstWhere(
       (e) => e.name == categoryStr,
-      orElse: () => categories.isNotEmpty ? categories.first : FoodCategory.other,
+      orElse: () =>
+          categories.isNotEmpty ? categories.first : FoodCategory.other,
     );
 
     final tags = (data['dietaryTags'] as List<dynamic>?)
@@ -571,7 +614,8 @@ class FoodService {
     required Uint8List imageBytes,
     required String? imageContentType,
   }) async {
-    debugPrint('[FoodService] Uploading image for $docId to ${storage.ref().bucket}...');
+    debugPrint(
+        '[FoodService] Uploading image for $docId to ${storage.ref().bucket}...');
     final ref = storage.ref().child('food_items/$merchantId/$docId$ext');
 
     try {
@@ -602,8 +646,9 @@ class FoodService {
 
       final snapshot = await uploadTask.timeout(const Duration(seconds: 120));
       await sub.cancel();
-      final downloadUrl =
-          await snapshot.ref.getDownloadURL().timeout(const Duration(seconds: 20));
+      final downloadUrl = await snapshot.ref
+          .getDownloadURL()
+          .timeout(const Duration(seconds: 20));
       debugPrint('[FoodService] Image uploaded for $docId');
       return downloadUrl;
     } on PlatformException catch (e) {
@@ -643,4 +688,3 @@ class FoodService {
     }
   }
 }
-

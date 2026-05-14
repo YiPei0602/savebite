@@ -20,7 +20,13 @@ import 'package:timezone/timezone.dart' as tz;
 /// Main hub for merchants to manage their surplus food listings.
 /// Loads items from FoodProvider and merchant info from MerchantProvider.
 class MerchantDashboardScreen extends StatefulWidget {
-  const MerchantDashboardScreen({super.key});
+  const MerchantDashboardScreen({
+    super.key,
+    /// When embedded in [MerchantShellScreen], switches to the Orders tab.
+    this.onGoToOrdersTab,
+  });
+
+  final VoidCallback? onGoToOrdersTab;
 
   @override
   State<MerchantDashboardScreen> createState() => _MerchantDashboardScreenState();
@@ -204,7 +210,16 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               children: [
                 _buildHeader(
                   merchantName: merchantName,
+                  onReceiptTap: widget.onGoToOrdersTab ??
+                      () => context.push('/merchant-orders'),
                 ),
+                if (merchantId != null &&
+                    merchantId.isNotEmpty &&
+                    widget.onGoToOrdersTab != null)
+                  _MerchantHomePendingBanner(
+                    merchantId: merchantId,
+                    onViewOrders: widget.onGoToOrdersTab!,
+                  ),
                 _buildStatsSection(
                   activeItems: activeItems,
                   expiringSoon30Min: expiringSoon30Min,
@@ -236,6 +251,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
 
   Widget _buildHeader({
     required String merchantName,
+    required VoidCallback onReceiptTap,
   }) {
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -258,7 +274,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
           ),
 
           IconButton(
-            onPressed: () => context.push('/merchant-orders'),
+            onPressed: onReceiptTap,
             icon: Icon(Icons.receipt_long, color: AppColors.primary),
             tooltip: 'Orders',
           ),
@@ -806,6 +822,133 @@ class _MarkAvailableDialogState extends State<_MarkAvailableDialog> {
           child: const Text('Update'),
         ),
       ],
+    );
+  }
+}
+
+/// Live banner on merchant Home when Firestore reports paid orders awaiting accept.
+class _MerchantHomePendingBanner extends StatefulWidget {
+  const _MerchantHomePendingBanner({
+    required this.merchantId,
+    required this.onViewOrders,
+  });
+
+  final String merchantId;
+  final VoidCallback onViewOrders;
+
+  @override
+  State<_MerchantHomePendingBanner> createState() =>
+      _MerchantHomePendingBannerState();
+}
+
+class _MerchantHomePendingBannerState extends State<_MerchantHomePendingBanner> {
+  bool _accepting = false;
+
+  Future<void> _acceptOrder(OrderModel order) async {
+    if (_accepting) return;
+    setState(() => _accepting = true);
+    final orderProvider = context.read<OrderProvider>();
+    final ok = await orderProvider.updateOrderStatus(
+      order.id,
+      OrderStatus.confirmed,
+    );
+    if (!mounted) return;
+    setState(() => _accepting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Order accepted'
+              : orderProvider.errorMessage ?? 'Unable to accept order',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final orderProvider = context.read<OrderProvider>();
+    return StreamBuilder<List<OrderModel>>(
+      stream: orderProvider.watchMerchantOrders(widget.merchantId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Material(
+            color: AppColors.error.withOpacity(0.12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.paddingM,
+                vertical: AppConstants.paddingS,
+              ),
+              child: Text(
+                'Unable to load new orders: ${snapshot.error}',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+        final orders = snapshot.data ?? const <OrderModel>[];
+        final pending = orders
+            .where((o) =>
+                o.orderStatus == OrderStatus.pending &&
+                o.paymentStatus == PaymentStatus.paid)
+            .toList();
+        if (pending.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Material(
+          color: AppColors.warning.withOpacity(0.22),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.paddingM,
+              vertical: AppConstants.paddingS,
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.notifications_active_outlined,
+                    color: AppColors.warning, size: 22),
+                const SizedBox(width: AppConstants.paddingS),
+                Expanded(
+                  child: Text(
+                    pending.length == 1
+                        ? 'New order • waiting for acceptance'
+                        : '${pending.length} orders waiting for acceptance',
+                    style: AppTypography.bodySmall.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: widget.onViewOrders,
+                  child: const Text('Open Orders'),
+                ),
+                const SizedBox(width: 6),
+                ElevatedButton(
+                  onPressed: _accepting ? null : () => _acceptOrder(pending.first),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                  ),
+                  child: _accepting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(pending.length == 1 ? 'Accept' : 'Accept first'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

@@ -16,6 +16,7 @@ import '../../marketplace_surplus/state/providers/merchant_provider.dart';
 import '../../orders_payments/state/providers/order_provider.dart';
 import '../../orders_payments/domain/models/order_model.dart';
 import '../../../shared/utils/merchant_display_name_utils.dart';
+import '../../../shared/utils/rider_contact_utils.dart';
 import '../../../shared/widgets/app_back_button.dart';
 
 /// Consumer-facing order tracking: live Firestore stream + status-driven UI.
@@ -60,14 +61,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       kDebugMode &&
       const bool.fromEnvironment(
         'DEMO_AUTO_PROGRESS_ORDERS',
-        defaultValue: true,
+        defaultValue: false,
       );
 
   static final bool _demoDriverSimEnabled =
       kDebugMode &&
       const bool.fromEnvironment(
         'DEMO_DRIVER_SIMULATION',
-        defaultValue: true,
+        defaultValue: false,
       );
 
   static const String _driverMarkerAssetPath = 'assets/images/deliveryrider.png';
@@ -724,6 +725,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 ],
                 _buildStatusHeroCard(order),
                 const SizedBox(height: AppConstants.paddingL),
+                if (order.fulfillmentType == FulfillmentType.delivery) ...[
+                  _buildRiderCard(order),
+                  const SizedBox(height: AppConstants.paddingL),
+                ],
                 if (order.orderStatus != OrderStatus.cancelled) ...[
                   _buildProgressCard(order),
                   const SizedBox(height: AppConstants.paddingL),
@@ -1062,6 +1067,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (type == FulfillmentType.pickup) {
       return const <String>[
         'Order placed',
+        'Order accepted',
         'Preparing',
         'Ready',
         'Completed',
@@ -1069,8 +1075,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     }
     return const <String>[
       'Order placed',
+      'Order accepted',
       'Preparing',
-      'On the way',
+      'Searching rider',
+      'Out for delivery',
       'Completed',
     ];
   }
@@ -1078,18 +1086,152 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   int _progressIndex(OrderModel order) {
     final s = order.orderStatus;
     final type = order.fulfillmentType;
-    if (s == OrderStatus.completed) return 3;
     if (type == FulfillmentType.pickup) {
-      if (s == OrderStatus.ready) return 2;
-      if (s == OrderStatus.preparing) return 1;
-      // pending / confirmed
-      return 0;
+      switch (s) {
+        case OrderStatus.pending:
+          return 0;
+        case OrderStatus.confirmed:
+          return 1;
+        case OrderStatus.preparing:
+          return 2;
+        case OrderStatus.ready:
+          return 3;
+        case OrderStatus.completed:
+          return 4;
+        case OrderStatus.onTheWay:
+        case OrderStatus.cancelled:
+          return 0;
+      }
     }
-    // delivery
-    if (s == OrderStatus.onTheWay) return 2;
-    if (s == OrderStatus.preparing || s == OrderStatus.ready) return 1;
-    // pending / confirmed
-    return 0;
+    switch (s) {
+      case OrderStatus.pending:
+        return 0;
+      case OrderStatus.confirmed:
+        return 1;
+      case OrderStatus.preparing:
+        return 2;
+      case OrderStatus.ready:
+        return 3;
+      case OrderStatus.onTheWay:
+        return 4;
+      case OrderStatus.completed:
+        return 5;
+      case OrderStatus.cancelled:
+        return 0;
+    }
+  }
+
+  Widget _buildRiderCard(OrderModel order) {
+    final phone = order.riderPhone?.trim();
+    final name = order.riderName?.trim();
+    final vehicle = order.riderVehicleInfo?.trim();
+    final note = order.riderNote?.trim();
+    final hasAny = (name != null && name.isNotEmpty) ||
+        (phone != null && phone.isNotEmpty) ||
+        (vehicle != null && vehicle.isNotEmpty) ||
+        (note != null && note.isNotEmpty);
+    final terminal = order.orderStatus == OrderStatus.completed ||
+        order.orderStatus == OrderStatus.cancelled;
+
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.paddingM),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.border.withOpacity(0.7)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.local_shipping_outlined,
+                  color: AppColors.primary, size: 22),
+              const SizedBox(width: 8),
+              Text('Your rider', style: AppTypography.h5),
+            ],
+          ),
+          if (!hasAny && !terminal) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Rider details will appear when the store assigns someone for delivery.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+          if (name != null && name.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              name,
+              style: AppTypography.bodyMedium.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          if (vehicle != null && vehicle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              vehicle,
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+          if (note != null && note.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(note, style: AppTypography.bodySmall),
+          ],
+          if (phone != null && phone.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      final ok = await callRiderPhone(phone);
+                      if (!mounted) return;
+                      if (!ok) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Unable to open phone dialer'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: const Text('Call'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final ok = await openRiderWhatsApp(phone);
+                      if (!mounted) return;
+                      if (!ok) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Unable to open WhatsApp'),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                    label: const Text('WhatsApp'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildLocationCard(OrderModel order) {
@@ -1181,7 +1323,9 @@ String _statusTitle(OrderStatus s, FulfillmentType type) {
     case OrderStatus.preparing:
       return 'Preparing your food';
     case OrderStatus.ready:
-      return type == FulfillmentType.pickup ? 'Ready for pickup' : 'Ready';
+      return type == FulfillmentType.pickup
+          ? 'Ready for pickup'
+          : 'Searching rider';
     case OrderStatus.onTheWay:
       return 'Out for delivery';
     case OrderStatus.completed:
@@ -1202,9 +1346,9 @@ String _statusDescription(OrderStatus s, FulfillmentType type) {
     case OrderStatus.ready:
       return type == FulfillmentType.pickup
           ? 'Your order is ready for pickup.'
-          : 'Your order is ready.';
+          : 'The store is arranging a rider for your delivery.';
     case OrderStatus.onTheWay:
-      return 'Your order is on the way to you.';
+      return 'Your order is out for delivery.';
     case OrderStatus.completed:
       return 'Thank you for your order.';
     case OrderStatus.cancelled:

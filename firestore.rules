@@ -5,20 +5,64 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function hasUserDoc() {
+      return signedIn() && exists(userPath());
+    }
+
     function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return get(userPath());
     }
 
     function isMerchant() {
-      return signedIn() && userDoc().exists && userDoc().data.role == 'merchant';
+      return hasUserDoc() && userDoc().data.role == 'merchant';
     }
 
     function ownsMerchantId(merchantId) {
-      return isMerchant()
+      return signedIn()
         && (
           merchantId == request.auth.uid
-          || (userDoc().data.merchantId != null && merchantId == userDoc().data.merchantId)
+          || (
+            isMerchant()
+            && userDoc().data.merchantId != null
+            && merchantId == userDoc().data.merchantId
+          )
         );
+    }
+
+    function isOrderBuyer() {
+      return signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    /// Buyers may cancel their own early-stage orders; fulfillment progress is merchant-driven.
+    function buyerCancelsOrderOnly() {
+      return isOrderBuyer()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.merchantId == resource.data.merchantId
+        && resource.data.orderStatus in ['pending', 'confirmed']
+        && request.resource.data.orderStatus == 'cancelled'
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly([
+            'orderStatus',
+            'updatedAt',
+            'completedAt'
+          ]);
+    }
+
+    /// Consumer checkout decrements physical stock / reserved aggregates (see OrderService).
+    function checkoutFoodCountersOnly() {
+      return signedIn()
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['stock', 'reservedStock', 'updatedAt'])
+        && request.resource.data.merchantId == resource.data.merchantId
+        && request.resource.data.stock is int
+        && request.resource.data.reservedStock is int
+        && request.resource.data.stock >= 0
+        && request.resource.data.reservedStock >= 0
+        && request.resource.data.stock <= resource.data.stock
+        && request.resource.data.reservedStock <= request.resource.data.stock;
     }
 
     // Users can read/write only their own user document.
@@ -26,15 +70,37 @@ service cloud.firestore {
       allow read, create, update, delete: if signedIn() && request.auth.uid == userId;
     }
 
-    // Food listings: any signed-in user can read.
-    // Only the owning merchant can create/update/delete their own listings.
+    match /merchants/{merchantId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && merchantId == request.auth.uid;
+      allow update, delete: if ownsMerchantId(merchantId);
+    }
+
     match /food_items/{itemId} {
       allow read: if signedIn();
-
       allow create: if ownsMerchantId(request.resource.data.merchantId);
+      allow update, delete: if ownsMerchantId(resource.data.merchantId)
+        || checkoutFoodCountersOnly();
+    }
 
-      allow update, delete: if ownsMerchantId(resource.data.merchantId);
+    match /orders/{orderId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn() && (
+        resource.data.userId == request.auth.uid
+        || ownsMerchantId(resource.data.merchantId)
+      );
+      allow update: if signedIn() && (
+        ownsMerchantId(resource.data.merchantId)
+        || buyerCancelsOrderOnly()
+      );
+      allow delete: if false;
+    }
+
+    match /stock_reservations/{reservationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if false;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
   }
 }
-

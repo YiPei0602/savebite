@@ -12,6 +12,7 @@ import 'package:savebite/features/marketplace_surplus/domain/models/food_item_mo
 /// Manages food items state across the app.
 class FoodProvider with ChangeNotifier {
   final FoodService _foodService = FoodService();
+  StreamSubscription<List<FoodItemModel>>? _consumerCatalogSub;
 
   List<FoodItemModel> _allFoodItems = [];
   List<FoodItemModel> _filteredFoodItems = [];
@@ -25,6 +26,7 @@ class FoodProvider with ChangeNotifier {
   // Getters
   List<FoodItemModel> get allFoodItems => _allFoodItems;
   List<FoodItemModel> get filteredFoodItems => _filteredFoodItems;
+
   /// Items after search/category filters. Stock-only; use [isSurplusSellableToConsumer]
   /// with [MerchantModel] in UI for pickup-window rules (overnight hours).
   List<FoodItemModel> get displayedFoodItems {
@@ -35,6 +37,7 @@ class FoodProvider with ChangeNotifier {
         .where((item) => item.isConsumerVisibleNow() && item.stock > 0)
         .toList();
   }
+
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   Set<FoodCategory> get selectedCategories => _selectedCategories;
@@ -48,6 +51,16 @@ class FoodProvider with ChangeNotifier {
       _selectedDietaryTags.isNotEmpty ||
       _selectedLocation != null;
 
+  void _upsertCatalog(List<FoodItemModel> fetched) {
+    _allFoodItems = List<FoodItemModel>.of(fetched);
+    if (_hasActiveFilters) {
+      _applyFilters();
+    } else {
+      _filteredFoodItems = List<FoodItemModel>.of(_allFoodItems);
+      notifyListeners();
+    }
+  }
+
   /// Load consumer-visible food items ([ListingStatus.active] only from service).
   Future<void> loadFoodItems({bool showLoadingIndicator = true}) async {
     if (showLoadingIndicator) {
@@ -58,8 +71,7 @@ class FoodProvider with ChangeNotifier {
 
     try {
       final fetched = await _foodService.getAllFoodItems();
-      _allFoodItems = List<FoodItemModel>.of(fetched);
-      _filteredFoodItems = List<FoodItemModel>.of(_allFoodItems);
+      _upsertCatalog(fetched);
       _errorMessage = null;
       final merchantIds = fetched.map((e) => e.merchantId).toSet();
       unawaited(MerchantService().syncOpenStateForMerchantIds(merchantIds));
@@ -71,6 +83,26 @@ class FoodProvider with ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  /// Keeps consumer catalog in sync without requiring hot restart.
+  Future<void> startRealtimeCatalogSync() async {
+    await _consumerCatalogSub?.cancel();
+    _consumerCatalogSub = _foodService.watchAllFoodItems().listen(
+      (items) {
+        _errorMessage = null;
+        _upsertCatalog(items);
+      },
+      onError: (Object e) {
+        _errorMessage = e.toString();
+        notifyListeners();
+      },
+    );
+  }
+
+  Future<void> stopRealtimeCatalogSync() async {
+    await _consumerCatalogSub?.cancel();
+    _consumerCatalogSub = null;
   }
 
   /// Toggle category filter (multi-select)
@@ -128,7 +160,8 @@ class FoodProvider with ChangeNotifier {
 
     if (_selectedDietaryTags.isNotEmpty) {
       filtered = filtered.where((item) {
-        return _selectedDietaryTags.any((tag) => item.dietaryTags.contains(tag));
+        return _selectedDietaryTags
+            .any((tag) => item.dietaryTags.contains(tag));
       }).toList();
     }
 
@@ -319,5 +352,10 @@ class FoodProvider with ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
   }
-}
 
+  @override
+  void dispose() {
+    _consumerCatalogSub?.cancel();
+    super.dispose();
+  }
+}

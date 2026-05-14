@@ -24,6 +24,8 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
   final _customerInFlight = <String, Future<String>>{};
 
   bool _merchantOrdersInitialized = false;
+  bool _initialPendingPromptShown = false;
+  bool _newOrderDialogShowing = false;
   final Set<String> _seenOrderIds = <String>{};
   final Map<String, OrderStatus> _lastStatusByOrderId = <String, OrderStatus>{};
 
@@ -32,6 +34,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
     OrderStatus.confirmed,
     OrderStatus.preparing,
     OrderStatus.ready,
+    OrderStatus.onTheWay,
   ];
 
   @override
@@ -107,6 +110,20 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
         ..clear()
         ..addEntries(orders.map((o) => MapEntry(o.id, o.orderStatus)));
       _merchantOrdersInitialized = true;
+      final waitingOrders = orders
+          .where((o) =>
+              o.orderStatus == OrderStatus.pending &&
+              o.paymentStatus == PaymentStatus.paid)
+          .toList(growable: false);
+      if (!_initialPendingPromptShown && waitingOrders.isNotEmpty) {
+        _initialPendingPromptShown = true;
+        _scheduleMerchantSnackBar(
+          waitingOrders.length == 1
+              ? 'New order waiting for acceptance'
+              : '${waitingOrders.length} orders waiting for acceptance',
+        );
+        _scheduleNewOrderDialog(waitingOrders.first);
+      }
       return;
     }
 
@@ -115,6 +132,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
         _seenOrderIds.add(o.id);
         _lastStatusByOrderId[o.id] = o.orderStatus;
         _scheduleMerchantSnackBar('New order received');
+        _scheduleNewOrderDialog(o);
       } else {
         final prev = _lastStatusByOrderId[o.id];
         if (prev != null &&
@@ -136,6 +154,39 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    });
+  }
+
+  void _scheduleNewOrderDialog(OrderModel order) {
+    if (_newOrderDialogShowing) return;
+    _newOrderDialogShowing = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _newOrderDialogShowing = false;
+        return;
+      }
+
+      final id = order.id;
+      final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('New order received', style: AppTypography.h4),
+          content: Text(
+            'Order #$shortId is waiting for your acceptance.',
+            style: AppTypography.bodyMedium,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Review order'),
+            ),
+          ],
+        ),
+      ).whenComplete(() {
+        _newOrderDialogShowing = false;
+      });
     });
   }
 
@@ -314,6 +365,77 @@ class _OrderCard extends StatefulWidget {
 
 class _OrderCardState extends State<_OrderCard> {
   bool _busy = false;
+  bool _riderSaveBusy = false;
+
+  late final TextEditingController _riderNameC;
+  late final TextEditingController _riderPhoneC;
+  late final TextEditingController _riderVehicleC;
+  late final TextEditingController _riderNoteC;
+
+  @override
+  void initState() {
+    super.initState();
+    final o = widget.order;
+    _riderNameC = TextEditingController(text: o.riderName ?? '');
+    _riderPhoneC = TextEditingController(text: o.riderPhone ?? '');
+    _riderVehicleC = TextEditingController(text: o.riderVehicleInfo ?? '');
+    _riderNoteC = TextEditingController(text: o.riderNote ?? '');
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.order.id != widget.order.id) {
+      _riderNameC.text = widget.order.riderName ?? '';
+      _riderPhoneC.text = widget.order.riderPhone ?? '';
+      _riderVehicleC.text = widget.order.riderVehicleInfo ?? '';
+      _riderNoteC.text = widget.order.riderNote ?? '';
+      return;
+    }
+    if (oldWidget.order.riderUpdatedAt != widget.order.riderUpdatedAt) {
+      _riderNameC.text = widget.order.riderName ?? '';
+      _riderPhoneC.text = widget.order.riderPhone ?? '';
+      _riderVehicleC.text = widget.order.riderVehicleInfo ?? '';
+      _riderNoteC.text = widget.order.riderNote ?? '';
+    }
+  }
+
+  @override
+  void dispose() {
+    _riderNameC.dispose();
+    _riderPhoneC.dispose();
+    _riderVehicleC.dispose();
+    _riderNoteC.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveRiderDetails() async {
+    if (_riderSaveBusy) return;
+    setState(() => _riderSaveBusy = true);
+    final ok = await context.read<OrderProvider>().updateOrderRiderDetails(
+          orderId: widget.order.id,
+          riderName: _riderNameC.text,
+          riderPhone: _riderPhoneC.text,
+          riderVehicleInfo: _riderVehicleC.text,
+          riderNote: _riderNoteC.text,
+        );
+    if (!mounted) return;
+    setState(() => _riderSaveBusy = false);
+    if (ok == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.read<OrderProvider>().errorMessage ??
+                'Unable to save rider details',
+          ),
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Rider details saved')),
+    );
+  }
 
   Future<void> _setStatus(OrderStatus status) async {
     if (_busy) return;
@@ -363,12 +485,20 @@ class _OrderCardState extends State<_OrderCard> {
         primaryTarget = OrderStatus.ready;
         break;
       case OrderStatus.ready:
-        primaryLabel = 'Complete Order';
+        if (order.fulfillmentType == FulfillmentType.pickup) {
+          primaryLabel = 'Complete Order';
+          primaryTarget = OrderStatus.completed;
+        } else {
+          primaryLabel = 'Out for delivery';
+          primaryTarget = OrderStatus.onTheWay;
+        }
+        break;
+      case OrderStatus.onTheWay:
+        primaryLabel = 'Mark delivered';
         primaryTarget = OrderStatus.completed;
         break;
       case OrderStatus.completed:
       case OrderStatus.cancelled:
-      case OrderStatus.onTheWay:
         primaryLabel = null;
         primaryTarget = null;
         break;
@@ -394,6 +524,23 @@ class _OrderCardState extends State<_OrderCard> {
                     style: AppTypography.h5.copyWith(
                       fontWeight: FontWeight.w900,
                       color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    order.fulfillmentType == FulfillmentType.delivery
+                        ? 'Delivery'
+                        : 'Pickup',
+                    style: AppTypography.caption.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textSecondary,
                     ),
                   ),
                 ),
@@ -511,6 +658,100 @@ class _OrderCardState extends State<_OrderCard> {
                 ),
               ],
             ),
+
+            if (order.fulfillmentType == FulfillmentType.delivery) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Rider / delivery partner',
+                style: AppTypography.bodySmall.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (showActions) ...[
+                TextField(
+                  controller: _riderNameC,
+                  decoration: const InputDecoration(
+                    labelText: 'Name',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _riderPhoneC,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone (WhatsApp)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _riderVehicleC,
+                  decoration: const InputDecoration(
+                    labelText: 'Vehicle / plate (optional)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _riderNoteC,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Note (optional)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: _riderSaveBusy ? null : _saveRiderDetails,
+                    icon: _riderSaveBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.save_outlined, size: 18),
+                    label: const Text('Save rider details'),
+                  ),
+                ),
+              ] else ...[
+                if ((order.riderName ?? '').isNotEmpty ||
+                    (order.riderPhone ?? '').isNotEmpty ||
+                    (order.riderVehicleInfo ?? '').isNotEmpty ||
+                    (order.riderNote ?? '').isNotEmpty) ...[
+                  Text(
+                    [
+                      if ((order.riderName ?? '').isNotEmpty)
+                        'Name: ${order.riderName}',
+                      if ((order.riderPhone ?? '').isNotEmpty)
+                        'Phone: ${order.riderPhone}',
+                      if ((order.riderVehicleInfo ?? '').isNotEmpty)
+                        'Vehicle: ${order.riderVehicleInfo}',
+                      if ((order.riderNote ?? '').isNotEmpty)
+                        'Note: ${order.riderNote}',
+                    ].join('\n'),
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                      height: 1.35,
+                    ),
+                  ),
+                ] else
+                  Text(
+                    'No rider details saved',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textTertiary,
+                    ),
+                  ),
+              ],
+            ],
 
             if (showActions && primaryLabel != null && primaryTarget != null) ...[
               const SizedBox(height: 12),

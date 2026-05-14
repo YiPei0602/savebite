@@ -48,10 +48,15 @@ class SaveBiteApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
-        ChangeNotifierProvider(create: (_) => FoodProvider()..loadFoodItems()),
+        ChangeNotifierProvider(
+          create: (_) => FoodProvider()
+            ..loadFoodItems()
+            ..startRealtimeCatalogSync(),
+        ),
         ChangeNotifierProvider(create: (_) => CartProvider()),
         ChangeNotifierProvider(create: (_) => OrderProvider()),
-        ChangeNotifierProvider(create: (_) => MerchantProvider()..loadMerchants()),
+        ChangeNotifierProvider(
+            create: (_) => MerchantProvider()..loadMerchants()),
       ],
       child: const _AppShell(),
     );

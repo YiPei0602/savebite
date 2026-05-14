@@ -1,18 +1,22 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
+import 'package:savebite/features/orders_payments/data/services/stock_reservation_service.dart';
 import 'package:savebite/features/orders_payments/domain/checkout_payment_method_key.dart';
 import 'package:savebite/features/orders_payments/domain/payment_checkout_args.dart';
+import 'package:savebite/features/orders_payments/presentation/widgets/checkout_reservation_ui.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
-import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/shared/widgets/places_autocomplete_field.dart';
 
 String _normalizeHhMm24(String? raw) {
@@ -60,9 +64,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   String _selectedPaymentMethod = CheckoutPaymentMethodKey.card;
 
-  // Delivery fee (only if delivery is selected)
-  final double _deliveryFee = 2.00;
-
   final TextEditingController _deliveryAddressController =
       TextEditingController();
 
@@ -70,14 +71,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   double? _deliveryLng;
   String? _deliveryPlaceId;
 
+  Timer? _reservationTicker;
+  bool _reservationLoading = true;
+  bool _reservationFailed = false;
+  String? _reservationErrorMessage;
+  DateTime? _reservationExpiresAtUtc;
+
+  /// True after countdown hits zero; dialogs + redirect triggered.
+  bool _reservationExpiredHandled = false;
   @override
   void initState() {
     super.initState();
-    // Pre-fill text from profile; user must pick a suggestion for coordinates.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final addr =
-          context.read<AuthProvider>().currentUser?.address?.trim();
+      _bootstrapReservation();
+      // Pre-fill text from profile; user must pick a suggestion for coordinates.
+      final addr = context.read<AuthProvider>().currentUser?.address?.trim();
       if (addr != null &&
           addr.isNotEmpty &&
           _deliveryAddressController.text.isEmpty) {
@@ -88,9 +97,125 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   @override
   void dispose() {
+    _reservationTicker?.cancel();
     _deliveryAddressController.dispose();
     super.dispose();
   }
+
+  Future<void> _bootstrapReservation() async {
+    final userId = context.read<AuthProvider>().currentUser?.id;
+    if (userId == null || userId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _reservationLoading = false;
+        _reservationFailed = true;
+        _reservationErrorMessage = 'Please login again before checkout.';
+      });
+      return;
+    }
+
+    final cartProvider = context.read<CartProvider>();
+    if (cartProvider.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _reservationLoading = false;
+        _reservationFailed = true;
+        _reservationErrorMessage = 'Your cart is empty.';
+      });
+      return;
+    }
+    if (cartProvider.hasMultipleMerchants) {
+      if (!mounted) return;
+      setState(() {
+        _reservationLoading = false;
+        _reservationFailed = true;
+        _reservationErrorMessage =
+            'Please checkout items from one store at a time.';
+      });
+      return;
+    }
+
+    final outcome = await StockReservationService()
+        .placeCheckoutHoldStrict(cartProvider.items);
+    if (!mounted) return;
+    if (!outcome.success || outcome.expiresAtUtc == null) {
+      setState(() {
+        _reservationLoading = false;
+        _reservationFailed = true;
+        _reservationErrorMessage = outcome.errorMessage ??
+            'Could not reserve stock for checkout. Try again.';
+      });
+      return;
+    }
+
+    setState(() {
+      _reservationLoading = false;
+      _reservationFailed = false;
+      _reservationErrorMessage = null;
+      _reservationExpiresAtUtc = outcome.expiresAtUtc!;
+    });
+    _startReservationTicker();
+  }
+
+  void _startReservationTicker() {
+    _reservationTicker?.cancel();
+    _reservationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted ||
+          _reservationExpiresAtUtc == null ||
+          _reservationExpiredHandled) {
+        return;
+      }
+      if (checkoutReservationExpired(_reservationExpiresAtUtc!)) {
+        _fireReservationExpired();
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  Future<void> _fireReservationExpired() async {
+    if (_reservationExpiredHandled) return;
+    _reservationExpiredHandled = true;
+    _reservationTicker?.cancel();
+    if (!mounted) return;
+    setState(() {});
+    await showReservationExpiredDialog(context);
+    if (mounted) {
+      context.go('/home');
+    }
+  }
+
+  Future<void> _onCheckoutBackRequested() async {
+    if (_reservationLoading && !_reservationFailed) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/home');
+      }
+      return;
+    }
+    if (_reservationFailed) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/home');
+      }
+      return;
+    }
+    if (_reservationExpiredHandled) return;
+    final leave = await showLeaveCheckoutDialog(context);
+    if (!mounted) return;
+    if (leave) {
+      context.go('/home');
+    }
+  }
+
+  bool get _checkoutActionsDisabled =>
+      _reservationLoading ||
+      _reservationFailed ||
+      _reservationExpiredHandled ||
+      (_reservationExpiresAtUtc != null &&
+          checkoutReservationExpired(_reservationExpiresAtUtc!));
 
   // Get cart data from provider or widget
   Map<String, Map<String, dynamic>> get _cartItems {
@@ -145,6 +270,80 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     return total;
   }
 
+  MerchantModel? _merchantProfileForCart(CartProvider cart) {
+    if (cart.isEmpty) return null;
+    final merchantId = cart.items.first.foodItem.merchantId;
+    for (final m in context.read<MerchantProvider>().merchants) {
+      if (m.id == merchantId) return m;
+    }
+    return null;
+  }
+
+  double? get _deliveryDistanceKm {
+    if (_isSelfPickup || _deliveryLat == null || _deliveryLng == null) {
+      return null;
+    }
+    final cart = context.read<CartProvider>();
+    final merchant = _merchantProfileForCart(cart);
+    final merchantLat = merchant?.latitude;
+    final merchantLng = merchant?.longitude;
+    if (merchantLat == null || merchantLng == null) {
+      return null;
+    }
+    return _haversineKm(
+      merchantLat,
+      merchantLng,
+      _deliveryLat!,
+      _deliveryLng!,
+    );
+  }
+
+  double? get _calculatedDeliveryFee {
+    final km = _deliveryDistanceKm;
+    if (km == null) return null;
+    if (km <= 3) return 2.00;
+    if (km <= 5) return 4.00;
+    if (km <= 8) return 6.00;
+    return 8.00;
+  }
+
+  double get _deliveryFee =>
+      _isSelfPickup ? 0.0 : (_calculatedDeliveryFee ?? 0.0);
+
+  String? get _deliveryBlockReason {
+    if (_isSelfPickup) return null;
+    final addr = _deliveryAddressController.text.trim();
+    if (addr.isEmpty || _deliveryLat == null || _deliveryLng == null) {
+      return 'Please search and select your delivery address from the list.';
+    }
+    final cart = context.read<CartProvider>();
+    final merchant = _merchantProfileForCart(cart);
+    if (merchant?.latitude == null || merchant?.longitude == null) {
+      return 'Delivery is unavailable because this store location is not configured.';
+    }
+    return null;
+  }
+
+  double _haversineKm(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _degToRad(lat2 - lat1);
+    final dLng = _degToRad(lng2 - lng1);
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_degToRad(lat1)) *
+            math.cos(_degToRad(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  double _degToRad(double deg) => deg * math.pi / 180.0;
+
   PaymentMethod _paymentMethodFromKey(String key) {
     switch (key) {
       case CheckoutPaymentMethodKey.ewallet:
@@ -157,7 +356,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  void _placeOrder() {
+  Future<void> _placeOrder() async {
+    if (_checkoutActionsDisabled) {
+      return;
+    }
+
     final auth = context.read<AuthProvider>();
     final userId = auth.currentUser?.id;
     if (userId == null || userId.isEmpty) {
@@ -172,27 +375,42 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     if (cartProvider.hasMultipleMerchants) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please checkout items from one store at a time.')),
+        const SnackBar(
+            content: Text('Please checkout items from one store at a time.')),
       );
       return;
     }
 
     if (!_isSelfPickup) {
-      final addr = _deliveryAddressController.text.trim();
-      if (addr.isEmpty ||
-          _deliveryLat == null ||
-          _deliveryLng == null) {
+      final reason = _deliveryBlockReason;
+      if (reason != null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please search and select your delivery address from the list.',
-            ),
-          ),
+          SnackBar(content: Text(reason)),
         );
         return;
       }
     }
 
+    final holdAgain = await StockReservationService()
+        .placeCheckoutHoldStrict(cartProvider.items);
+    if (!mounted) return;
+    if (!holdAgain.success || holdAgain.expiresAtUtc == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            holdAgain.errorMessage ??
+                'Could not refresh your reservation. Try again shortly.',
+          ),
+        ),
+      );
+      return;
+    }
+    final reservationExpiryUtc = holdAgain.expiresAtUtc!;
+    setState(() {
+      _reservationExpiresAtUtc = reservationExpiryUtc;
+    });
+
+    if (!mounted) return;
     final first = cartProvider.items.first;
     final merchantId = first.foodItem.merchantId;
     MerchantModel? merchantProfile;
@@ -246,6 +464,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ? merchantProfile.address.trim()
               : null)
           : null,
+      reservationExpiresAt: reservationExpiryUtc,
     );
 
     context.push('/payment', extra: args);
@@ -253,39 +472,110 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        centerTitle: true,
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (bool didPop) async {
+        if (didPop) return;
+        await _onCheckoutBackRequested();
+      },
+      child: Scaffold(
         backgroundColor: AppColors.background,
-        elevation: 0,
-        iconTheme: IconThemeData(color: AppColors.textPrimary),
-        leading: const AppBackButton(color: AppColors.textPrimary),
-        title: Text(
-          'Checkout',
-          style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
-        ),
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(AppConstants.paddingM),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildFulfillmentSection(),
-                  const SizedBox(height: AppConstants.paddingL),
-                  _buildOrderSummary(),
-                  const SizedBox(height: AppConstants.paddingL),
-                  _buildPaymentSection(),
-                  const SizedBox(height: 100),
-                ],
-              ),
-            ),
+        appBar: AppBar(
+          centerTitle: true,
+          backgroundColor: AppColors.background,
+          elevation: 0,
+          iconTheme: IconThemeData(color: AppColors.textPrimary),
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back, color: AppColors.textPrimary),
+            tooltip: 'Back',
+            onPressed: _onCheckoutBackRequested,
           ),
-          _buildPlaceOrderButton(),
-        ],
+          title: Text(
+            'Checkout',
+            style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
+          ),
+          actions: [
+            if (!_reservationLoading &&
+                !_reservationFailed &&
+                !_reservationExpiredHandled &&
+                _reservationExpiresAtUtc != null)
+              Padding(
+                padding: const EdgeInsets.only(right: AppConstants.paddingS),
+                child: Center(
+                  child: ReservationCountdownBadge(
+                    expiresAtUtc: _reservationExpiresAtUtc!,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppConstants.paddingM),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFulfillmentSection(),
+                        const SizedBox(height: AppConstants.paddingL),
+                        _buildOrderSummary(),
+                        const SizedBox(height: AppConstants.paddingL),
+                        _buildPaymentSection(),
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+                  ),
+                ),
+                _buildPlaceOrderButton(),
+              ],
+            ),
+            if (_reservationLoading)
+              Positioned.fill(
+                child: Material(
+                  color: AppColors.overlay,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                ),
+              ),
+            if (_reservationFailed)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: AppColors.background.withOpacity(0.96),
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppConstants.paddingXL),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _reservationErrorMessage ??
+                                'Could not reserve your items.',
+                            textAlign: TextAlign.center,
+                            style: AppTypography.bodyLarge.copyWith(
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: AppConstants.paddingL),
+                          ElevatedButton(
+                            onPressed: () => context.go('/home'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: AppColors.textOnPrimary,
+                            ),
+                            child: const Text('Return to marketplace'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -398,7 +688,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           ),
                           const SizedBox(height: AppConstants.paddingXS),
                           Text(
-                            '${AppConstants.currencySymbol}${_deliveryFee.toStringAsFixed(2)}',
+                            _calculatedDeliveryFee == null
+                                ? '${AppConstants.currencySymbol}--'
+                                : '${AppConstants.currencySymbol}${_calculatedDeliveryFee!.toStringAsFixed(2)}',
                             style: AppTypography.bodySmall.copyWith(
                               color: !_isSelfPickup
                                   ? Colors.white
@@ -556,7 +848,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             });
           },
         ),
+        if (_deliveryLat != null && _deliveryLng != null) ...[
+          const SizedBox(height: AppConstants.paddingS),
+          _buildDeliveryFeePreview(),
+        ],
       ],
+    );
+  }
+
+  Widget _buildDeliveryFeePreview() {
+    final distanceKm = _deliveryDistanceKm;
+    final fee = _calculatedDeliveryFee;
+    final reason = _deliveryBlockReason;
+    if (distanceKm == null || fee == null) {
+      return Text(
+        reason ?? 'Delivery distance unavailable.',
+        style: AppTypography.bodySmall.copyWith(color: AppColors.error),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.paddingS),
+      decoration: BoxDecoration(
+        color: AppColors.info.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(AppConstants.radiusS),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.route, size: 18, color: AppColors.info),
+          const SizedBox(width: AppConstants.paddingS),
+          Expanded(
+            child: Text(
+              '${distanceKm.toStringAsFixed(2)} km from store · '
+              'Delivery ${AppConstants.currencySymbol}${fee.toStringAsFixed(2)}',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -624,7 +955,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       child: Container(
         padding: const EdgeInsets.all(AppConstants.paddingM),
         decoration: BoxDecoration(
-          color: isSelected ? accentColor.withOpacity(0.1) : AppColors.surfaceVariant,
+          color: isSelected
+              ? accentColor.withOpacity(0.1)
+              : AppColors.surfaceVariant,
           borderRadius: BorderRadius.circular(AppConstants.radiusS),
           border: Border.all(
             color: isSelected ? accentColor : AppColors.border,
@@ -636,7 +969,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             Container(
               padding: const EdgeInsets.all(AppConstants.paddingS),
               decoration: BoxDecoration(
-                color: isSelected ? accentColor.withOpacity(0.2) : AppColors.surface,
+                color: isSelected
+                    ? accentColor.withOpacity(0.2)
+                    : AppColors.surface,
                 borderRadius: BorderRadius.circular(AppConstants.radiusS),
               ),
               child: Icon(
@@ -703,9 +1038,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             if (!_isSelfPickup) ...[
               const SizedBox(height: AppConstants.paddingS),
+              if (_deliveryDistanceKm != null)
+                _buildSummaryRow(
+                  'Delivery Distance',
+                  '${_deliveryDistanceKm!.toStringAsFixed(2)} km',
+                ),
+              if (_deliveryDistanceKm != null)
+                const SizedBox(height: AppConstants.paddingS),
               _buildSummaryRow(
                 'Delivery Fee',
-                '${AppConstants.currencySymbol}${_deliveryFee.toStringAsFixed(2)}',
+                _calculatedDeliveryFee == null
+                    ? '${AppConstants.currencySymbol}--'
+                    : '${AppConstants.currencySymbol}${_calculatedDeliveryFee!.toStringAsFixed(2)}',
               ),
             ],
             const SizedBox(height: AppConstants.paddingS),
@@ -795,7 +1139,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           child: SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _placeOrder,
+              onPressed: _checkoutActionsDisabled ? null : _placeOrder,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF00A86B),
                 foregroundColor: AppColors.textOnPrimary,

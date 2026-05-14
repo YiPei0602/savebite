@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,12 +12,13 @@ import 'package:provider/provider.dart';
 import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
+import 'package:savebite/features/orders_payments/data/services/stock_reservation_service.dart';
 import 'package:savebite/features/orders_payments/domain/payment_checkout_args.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
+import 'package:savebite/features/orders_payments/presentation/widgets/checkout_reservation_ui.dart';
 import 'package:savebite/features/orders_payments/presentation/widgets/order_placed_success_dialog.dart';
 import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/order_provider.dart';
-import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Stripe card (CardField + confirmPayment); order is created only after payment succeeds.
 class PaymentScreen extends StatefulWidget {
@@ -32,7 +34,63 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _busy = false;
   bool _cardComplete = false;
 
+  late DateTime _reservationExpiresUtc;
+  Timer? _reservationTicker;
+  bool _reservationExpiredHandled = false;
+
   PaymentCheckoutArgs get args => widget.args;
+
+  @override
+  void initState() {
+    super.initState();
+    _reservationExpiresUtc = widget.args.reservationExpiresAt.toUtc();
+    if (checkoutReservationExpired(_reservationExpiresUtc)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _handleReservationExpiry();
+        }
+      });
+      return;
+    }
+    _reservationTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _reservationExpiredHandled) return;
+      if (checkoutReservationExpired(_reservationExpiresUtc)) {
+        _handleReservationExpiry();
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _reservationTicker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleReservationExpiry() async {
+    if (_reservationExpiredHandled) return;
+    _reservationExpiredHandled = true;
+    _reservationTicker?.cancel();
+    if (!mounted) return;
+    setState(() {});
+    await showReservationExpiredDialog(context);
+    if (!mounted) return;
+    context.go('/home');
+  }
+
+  Future<void> _onPaymentBackRequested() async {
+    if (_reservationExpiredHandled) return;
+    final leave = await showLeaveCheckoutDialog(context);
+    if (!mounted) return;
+    if (leave) {
+      context.go('/home');
+    }
+  }
+
+  bool get _paymentBlocked =>
+      _reservationExpiredHandled ||
+      checkoutReservationExpired(_reservationExpiresUtc);
 
   static String _paymentMethodLabel(PaymentMethod m) {
     switch (m) {
@@ -127,7 +185,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (err is Map) {
       final errMap = Map<String, dynamic>.from(err);
       final status = (errMap['status'] as String? ?? '').toLowerCase();
-      final message = errMap['message'] as String? ?? 'Could not start payment.';
+      final message =
+          errMap['message'] as String? ?? 'Could not start payment.';
       throw FirebaseException(
         plugin: 'firebase_functions',
         message: message,
@@ -181,10 +240,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
       await _showError('Please enter a complete card number.');
       return;
     }
+    if (_paymentBlocked) {
+      await _showError(
+        'Reservation expired. Please place your order again from the marketplace.',
+      );
+      return;
+    }
 
     setState(() => _busy = true);
 
     try {
+      final refreshed =
+          await StockReservationService().placeCheckoutHoldStrict(args.items);
+      if (!mounted) return;
+      if (!refreshed.success || refreshed.expiresAtUtc == null) {
+        setState(() => _busy = false);
+        await _showError(
+          refreshed.errorMessage ??
+              'Could not refresh reservation. Try again shortly.',
+        );
+        return;
+      }
+      _reservationExpiresUtc = refreshed.expiresAtUtc!;
+
       final clientSecret = await _createPaymentIntentClientSecret();
 
       var paymentIntent = await Stripe.instance.confirmPayment(
@@ -341,107 +419,129 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        centerTitle: true,
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (bool didPop) async {
+        if (didPop) return;
+        await _onPaymentBackRequested();
+      },
+      child: Scaffold(
         backgroundColor: AppColors.background,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
-        leading: const AppBackButton(color: AppColors.textPrimary),
-        title: Text(
-          'Payment',
-          style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.paddingM),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Total',
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingXS),
-            Text(
-              '${AppConstants.currencySymbol}${args.totalPrice.toStringAsFixed(2)}',
-              style: AppTypography.h2.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingL),
-            Text(
-              'Checkout preference',
-              style: AppTypography.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingXS),
-            Text(
-              _paymentMethodLabel(args.paymentMethod),
-              style: AppTypography.bodyLarge.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingM),
-            Text(
-              'Enter your card below.',
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingM),
-            SizedBox(
-              height: 56,
-              child: CardField(
-                onCardChanged: (card) {
-                  setState(() {
-                    _cardComplete = card?.complete ?? false;
-                  });
-                },
-              ),
-            ),
-            const SizedBox(height: AppConstants.paddingXL),
-            ElevatedButton(
-              onPressed:
-                  (_busy || !_cardComplete) ? null : () => _onPayWithStripe(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF212121),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(
-                  vertical: AppConstants.primaryCtaVerticalPadding,
+        appBar: AppBar(
+          centerTitle: true,
+          backgroundColor: AppColors.background,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: AppColors.textPrimary),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
+            tooltip: 'Back',
+            onPressed: _onPaymentBackRequested,
+          ),
+          title: Text(
+            'Payment',
+            style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: AppConstants.paddingS),
+              child: Center(
+                child: ReservationCountdownBadge(
+                  expiresAtUtc: _reservationExpiresUtc,
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(
-                    AppConstants.primaryCtaPillRadius,
+              ),
+            ),
+          ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppConstants.paddingM),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Total',
+                style: AppTypography.bodyMedium.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingXS),
+              Text(
+                '${AppConstants.currencySymbol}${args.totalPrice.toStringAsFixed(2)}',
+                style: AppTypography.h2.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingL),
+              Text(
+                'Checkout preference',
+                style: AppTypography.bodyMedium.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingXS),
+              Text(
+                _paymentMethodLabel(args.paymentMethod),
+                style: AppTypography.bodyLarge.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingM),
+              Text(
+                'Enter your card below.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingM),
+              SizedBox(
+                height: 56,
+                child: CardField(
+                  onCardChanged: (card) {
+                    setState(() {
+                      _cardComplete = card?.complete ?? false;
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(height: AppConstants.paddingXL),
+              ElevatedButton(
+                onPressed: (_busy || !_cardComplete || _paymentBlocked)
+                    ? null
+                    : () => _onPayWithStripe(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF212121),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: AppConstants.primaryCtaVerticalPadding,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      AppConstants.primaryCtaPillRadius,
+                    ),
                   ),
                 ),
+                child: _busy
+                    ? const SizedBox(
+                        height: 22,
+                        width: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Pay now',
+                        style: AppTypography.buttonMedium.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
-              child: _busy
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text(
-                      'Pay now',
-                      style: AppTypography.buttonMedium.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-            ),
-            const SizedBox(height: AppConstants.paddingM),
-          ],
+              const SizedBox(height: AppConstants.paddingM),
+            ],
+          ),
         ),
       ),
     );

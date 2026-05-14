@@ -202,6 +202,41 @@ class OrderProvider with ChangeNotifier {
     return updateOrderStatus(orderId, OrderStatus.cancelled);
   }
 
+  Future<OrderModel?> updateOrderRiderDetails({
+    required String orderId,
+    String? riderName,
+    String? riderPhone,
+    String? riderVehicleInfo,
+    String? riderNote,
+  }) async {
+    _errorMessage = null;
+    try {
+      final updated = await _orderService.updateOrderRiderDetails(
+        orderId: orderId,
+        riderName: riderName,
+        riderPhone: riderPhone,
+        riderVehicleInfo: riderVehicleInfo,
+        riderNote: riderNote,
+      );
+      _replaceOrderInLists(updated);
+      notifyListeners();
+      return updated;
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  void _replaceOrderInLists(OrderModel updated) {
+    final id = updated.id;
+    final i = _orders.indexWhere((o) => o.id == id);
+    if (i >= 0) _orders[i] = updated;
+    final ai = _activeOrders.indexWhere((o) => o.id == id);
+    if (ai >= 0) _activeOrders[ai] = updated;
+    if (_currentOrder?.id == id) _currentOrder = updated;
+  }
+
   Future<void> updateDriverLocation({
     required String orderId,
     required double driverLatitude,
