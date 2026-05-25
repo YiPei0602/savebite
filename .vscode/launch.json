@@ -5,7 +5,10 @@
       "name": "SaveBite",
       "request": "launch",
       "type": "dart",
-      "program": "lib/main.dart"
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define=GOOGLE_PLACES_API_KEY=AIzaSyBv5oicMSksDGRYf716sXuSHv0zx8SXOSs"
+      ]
     }
   ]
 }

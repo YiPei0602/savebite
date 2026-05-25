@@ -26,8 +26,15 @@ Manages user authentication, profiles, and tracks sustainability impact for both
   - Meals saved
   - CO₂ reduced (in kg)
   - Money saved (in RM)
-- ✅ **Impact Metrics**: Real-time calculation of sustainability contributions
+- ✅ **Impact Metrics**: Real-time sustainability totals on **`users/{uid}.impactData`** (`mealsSaved`, `moneySaved`, `co2Reduced`, `ordersCompleted`). A Firestore-triggered Cloud Function (**`applyBuyerSustainabilityOnOrderCompleted`**) bumps those counters **once per paid completed order**, for **`orders.userId` (buyer)** and **`users/{orders.merchantId}` (merchant)**—in one transaction together with **`orders.sustainabilityImpactApplied`** / **`sustainabilityImpactAppliedAt`** so duplicate triggers cannot double-count. (`orders.merchantId` is the merchant Firebase UID.)
 - ✅ **Visual Display**: Clean, card-based layout with icons and metrics
+
+**Troubleshooting (counts stay zero)**  
+1. **Who gets credit**: On first transition to **`orderStatus === completed`** with a passing paid gate, buyer and merchant (when `merchantId` is present) receive the **same increment** except when buyer UID equals merchant UID (same user doc incremented once only).  
+2. **Deploy rules + function**: Merchant order updates cannot change `sustainabilityImpactApplied` / `sustainabilityImpactAppliedAt` (Firestore rules). After edits, deploy `firebase deploy --only functions:applyBuyerSustainabilityOnOrderCompleted` for the Firebase project wired to the app (e.g. `savebite-1fd01`) and **`firebase deploy --only firestore:rules`** if rules changed.  
+3. **Logs**: GCP → Cloud Functions → Logs. Success markers include **`impact_applied_completed_order_buyer_and_merchant`**, **`impact_applied_completed_order_buyer_equals_merchant`**, or **`impact_applied_buyer_only_missing_merchantId`**. Skip/retry noise: **`impact_skip_*`** (e.g. `already_applied`, `unpaid_in_tx`).  
+4. **Firestore doc**: Orders must retain **`items` with countable line quantities**, **`paidAt`**, **`paymentStatus`**, **`merchantId`**, compatible with `paymentLooksPaidForImpact` when completed.  
+5. **Wrong-shaped `impactData` (legacy)**: Credits must **`set(..., merge: true)` a nested **`impactData: { mealsSaved: increment … }`** map — never top-level dotted keys (`"impactData.mealsSaved"`), because merge treats those as literal field names and Flutter reads **`impactData`** as missing (zeros forever). Confirm in the Firebase console under **`users/{uid}`**. Very old completions may already have **`sustainabilityImpactApplied: true`** with no nested counts; fixing that needs one-time console cleanup / clearing that flag on test orders for a retry.
 
 #### Admin Features
 - ⚠️ **Note**: Admin interface is managed through a separate web portal, not included in mobile app
@@ -142,9 +149,9 @@ Handles the complete order lifecycle from cart to payment, including notificatio
 
 #### Merchant Order Management
 - ✅ **Merchant Orders Screen**: View all orders
-- ✅ **Order Tabs**: New Orders, Active Orders, Completed Orders
-- ✅ **Accept/Reject Orders**: Accept or reject new orders
-- ✅ **Mark Ready**: Mark orders as ready for pickup
+- ✅ **Order Tabs**: Active, Completed (fulfilled + buyer-cancelled/other), **Rejected** (merchant declined pending orders)
+- ✅ **Accept / Reject**: Accept advances the normal pickup/delivery flow; **Reject** (pending-only) applies `cancellationReason: merchantRejected`, restores listing stock (pending cancellations), triggers card refunds (`orders.stripePaymentIntentId`) via **`reconcileCancelledPaidOrderSideEffects`**
+- ✅ **Mark Ready**: Mark orders as ready for pickup / delivery milestones
 - ✅ **Daily Summary**: View daily order summaries (planned)
 
 ### Screens
@@ -165,6 +172,12 @@ Handles the complete order lifecycle from cart to payment, including notificatio
 
 ### Services
 - `lib/services/order_service.dart`
+
+### Cloud Functions (cancellation / refunds)
+- **`reconcileCancelledPaidOrderSideEffects`** runs when **`orderStatus` first becomes `cancelled`** on `orders/{id}`:
+  - If the prior status was **`pending`** and **`stockRestoredFromCancellation`** is false → restores **`food_items.stock`** using **`items[].foodItem.id` + quantity**, then sets **`stockRestoredFromCancellation: true`**.
+  - Sets **`paymentRefundStatus`** to **`notApplicable`** when there is no **`stripePaymentIntentId`** (`pi_…`); otherwise creates a Stripe **Refund** (`idempotencyKey: cancel_refund_{orderId}`) via **`stripe.secret`** (same as **`createPaymentIntent`**), updating **`paymentRefundStatus`** (**`succeeded` / `pending` / `failed`**) plus optional **`stripeRefundId`** / **`paymentRefundNote`**.
+- Deploy: `firebase deploy --only functions:reconcileCancelledPaidOrderSideEffects`.
 
 ---
 

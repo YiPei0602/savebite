@@ -129,7 +129,7 @@ class AuthService {
 
       final roleString = role.toString().split('.').last;
 
-      final userData = {
+      final userData = <String, dynamic>{
         'uid': firebaseUser.uid,
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
@@ -137,6 +137,13 @@ class AuthService {
         'phoneNumber': phoneE164,
         'role': roleString,
         if (role == UserRole.merchant) 'merchantId': firebaseUser.uid,
+        // Baseline aggregates (Cloud Function increments on completed orders).
+        'impactData': <String, dynamic>{
+          'mealsSaved': 0,
+          'moneySaved': 0.0,
+          'co2Reduced': 0.0,
+          'ordersCompleted': 0,
+        },
         'createdAt': FieldValue.serverTimestamp(),
       };
 
@@ -387,6 +394,24 @@ class AuthService {
     } catch (_) {
       _currentUser = null;
       return null;
+    }
+  }
+
+  /// Reload Firestore profile into [_currentUser] (e.g. after server updates [impactData]).
+  Future<UserModel?> refreshCurrentUserProfile() async {
+    final firebaseUser = _auth.currentUser;
+    if (firebaseUser == null) return null;
+
+    try {
+      final userDoc =
+          await _firestore.collection('users').doc(firebaseUser.uid).get();
+      if (!userDoc.exists) return _currentUser;
+
+      _currentUser =
+          UserModel.fromFirestore(userDoc.data()!, firebaseUser.uid);
+      return _currentUser;
+    } catch (_) {
+      return _currentUser;
     }
   }
 }

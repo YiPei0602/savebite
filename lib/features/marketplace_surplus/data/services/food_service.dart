@@ -52,7 +52,10 @@ class FoodService {
         .whereType<String>()
         .toSet();
     final merchants = await _fetchMerchantsByIds(merchantIds);
-    await _expireActivePastClosingInDocs(snap.docs, now, merchants);
+    // Do not persist expiry from the consumer app: Firestore rules only allow
+    // merchants (or checkout stock updates) to write food_items. Expiry for
+    // display is applied in [_fromDocForConsumerCatalog]; merchants run
+    // [applyListingLifecycleForMerchant] to sync status in Firestore.
     final active = snap.docs
         .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
         .where((item) => item.isConsumerVisibleNow(now))
@@ -75,7 +78,6 @@ class FoodService {
           .whereType<String>()
           .toSet();
       final merchants = await _fetchMerchantsByIds(merchantIds);
-      await _expireActivePastClosingInDocs(snap.docs, now, merchants);
       final active = snap.docs
           .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
           .where((item) => item.isConsumerVisibleNow(now))
@@ -102,7 +104,6 @@ class FoodService {
         .whereType<String>()
         .toSet();
     final merchants = await _fetchMerchantsByIds(merchantIds);
-    await _expireActivePastClosingInDocs(snap.docs, now, merchants);
     final items = snap.docs
         .map((d) => _fromDocForConsumerCatalog(d, now, merchants: merchants))
         .where((item) => item.isConsumerVisibleNow(now))
@@ -373,39 +374,8 @@ class FoodService {
     return out;
   }
 
-  /// Writes `expired` for active docs past item closing **or** past store closing (MY).
-  Future<void> _expireActivePastClosingInDocs(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-    DateTime now,
-    Map<String, MerchantModel?> merchants,
-  ) async {
-    if (docs.isEmpty) return;
-    WriteBatch batch = _firestore.batch();
-    var ops = 0;
-
-    Future<void> commitIfNeeded() async {
-      if (ops == 0) return;
-      await batch.commit();
-      batch = _firestore.batch();
-      ops = 0;
-    }
-
-    for (final doc in docs) {
-      final data = doc.data();
-      final mid = data['merchantId'] as String?;
-      final merchant = mid != null ? merchants[mid] : null;
-      if (!_shouldExpireActiveListing(data, merchant, now)) continue;
-
-      batch.update(doc.reference, _expireListingFieldUpdates());
-      ops++;
-      if (ops >= 450) {
-        await commitIfNeeded();
-      }
-    }
-    await commitIfNeeded();
-  }
-
-  /// Snapshot may be stale after [_expireActivePastClosingInDocs]; align model with effective status.
+  /// Snapshot fields may still say `active` in Firestore while the consumer
+  /// view applies session/closing logic in this method.
   FoodItemModel _fromDocForConsumerCatalog(
     DocumentSnapshot<Map<String, dynamic>> doc,
     DateTime now, {

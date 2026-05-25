@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:savebite/features/auth_profile_impact/data/services/auth_service.dart';
@@ -15,6 +17,56 @@ class AuthProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   StreamSubscription<User?>? _authSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _profileSubscription;
+
+  /// Real-time mirror of [`users/{uid}`] ([impactData], profile fields updated by Functions).
+  Future<void> _subscribeUserDocumentStream(String uid) async {
+    await _profileSubscription?.cancel();
+    _profileSubscription = null;
+
+    if (uid.isEmpty) return;
+
+    _profileSubscription =
+        FirebaseFirestore.instance.collection('users').doc(uid).snapshots().listen(
+      (snapshot) {
+        if (!snapshot.exists || snapshot.data() == null) return;
+        try {
+          _currentUser =
+              UserModel.fromFirestore(snapshot.data()!, uid);
+          notifyListeners();
+        } catch (e, st) {
+          if (kDebugMode) {
+            debugPrint('[AuthProvider] users/$uid snapshot parse failed: $e');
+            debugPrint('$st');
+          }
+        }
+      },
+      onError: (Object e, StackTrace st) {
+        if (kDebugMode) {
+          debugPrint('[AuthProvider] users/$uid snapshot error: $e');
+          debugPrint('$st');
+        }
+      },
+    );
+  }
+
+  Future<void> _cancelUserDocumentStream() async {
+    await _profileSubscription?.cancel();
+    _profileSubscription = null;
+  }
+
+  Future<void> _handleAuthUserChanged(User? user) async {
+    if (user == null) {
+      await _cancelUserDocumentStream();
+      if (_currentUser != null) {
+        _authService.clearLocalSession();
+        _currentUser = null;
+        notifyListeners();
+      }
+      return;
+    }
+    await _subscribeUserDocumentStream(user.uid);
+  }
 
   // Getters
   UserModel? get currentUser => _currentUser;
@@ -34,20 +86,22 @@ class AuthProvider with ChangeNotifier {
   /// Check if user is already logged in via Firebase Auth
   Future<void> initialize() async {
     await _authSubscription?.cancel();
-    _authSubscription =
-        FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (user == null && _currentUser != null) {
-        _authService.clearLocalSession();
-        _currentUser = null;
-        notifyListeners();
-      }
-    });
 
     _isLoading = true;
     notifyListeners();
 
     try {
+      await _cancelUserDocumentStream();
       _currentUser = await _authService.initialize();
+      final uid = _authService.firebaseUser?.uid;
+      if (_currentUser != null && uid != null) {
+        await _subscribeUserDocumentStream(uid);
+      }
+      _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
+        (User? user) {
+          unawaited(_handleAuthUserChanged(user));
+        },
+      );
     } catch (e) {
       _errorMessage = e.toString();
       _currentUser = null;
@@ -65,6 +119,10 @@ class AuthProvider with ChangeNotifier {
 
     try {
       _currentUser = await _authService.login(email, password);
+      final uid = _authService.firebaseUser?.uid;
+      if (uid != null) {
+        await _subscribeUserDocumentStream(uid);
+      }
       _isLoading = false;
       notifyListeners();
       return true;
@@ -98,6 +156,10 @@ class AuthProvider with ChangeNotifier {
         phoneE164: phoneE164,
         role: role,
       );
+      final uid = _authService.firebaseUser?.uid;
+      if (uid != null) {
+        await _subscribeUserDocumentStream(uid);
+      }
       _isLoading = false;
       notifyListeners();
       return true;
@@ -116,6 +178,7 @@ class AuthProvider with ChangeNotifier {
 
     try {
       await _authService.logout();
+      await _cancelUserDocumentStream();
       _currentUser = null;
     } catch (e) {
       _errorMessage = e.toString();
@@ -206,6 +269,15 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  /// Reload [users/{uid}] from Firestore (sustainability totals, etc.).
+  Future<void> refreshUserProfile() async {
+    final u = await _authService.refreshCurrentUserProfile();
+    if (u != null) {
+      _currentUser = u;
+      notifyListeners();
+    }
+  }
+
   /// Clear error message
   void clearError() {
     _errorMessage = null;
@@ -215,6 +287,7 @@ class AuthProvider with ChangeNotifier {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    unawaited(_cancelUserDocumentStream());
     super.dispose();
   }
 }

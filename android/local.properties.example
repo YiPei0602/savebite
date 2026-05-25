@@ -1,0 +1,3 @@
+## Copy to android/local.properties (Flutter / Android Studio will add sdk.dir and flutter.sdk on first sync).
+## Same key must be passed for Places HTTP: flutter run ... --dart-define=GOOGLE_PLACES_API_KEY=...
+GOOGLE_MAPS_API_KEY=AIzaSyBv5oicMSksDGRYf716sXuSHv0zx8SXOSs

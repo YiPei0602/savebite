@@ -21,6 +21,13 @@ class OrderService {
   static const String _stockReservationsCollection = 'stock_reservations';
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  static String? _trimOrNullStripePi(String? s) {
+    if (s == null) return null;
+    final t = s.trim();
+    if (t.isEmpty || !t.startsWith('pi_')) return null;
+    return t;
+  }
+
   static String _paymentStatusString(PaymentStatus s) =>
       s.toString().split('.').last;
 
@@ -47,6 +54,8 @@ class OrderService {
     double? deliveryLatitude,
     double? deliveryLongitude,
     String? deliveryPlaceId,
+    /// Stripe PaymentIntent id (`pi_…`) when checkout used card Payment Sheet.
+    String? stripePaymentIntentId,
   }) async {
     if (paymentStatus == PaymentStatus.failed) {
       throw ArgumentError(
@@ -84,6 +93,7 @@ class OrderService {
       deliveryLongitude: deliveryLongitude,
       deliveryPlaceId: deliveryPlaceId,
       createdAt: now,
+      stripePaymentIntentId: _trimOrNullStripePi(stripePaymentIntentId),
     );
 
     final checkoutNow = DateTime.now();
@@ -327,13 +337,13 @@ class OrderService {
         .where((o) =>
             o.orderStatus != OrderStatus.completed &&
             o.orderStatus != OrderStatus.cancelled)
-        .toList(growable: false);
+        .toList();
   }
 
   /// Valid single-step transitions from [current], respecting [fulfillmentType].
   ///
-  /// Pickup: `pending → confirmed → preparing → ready → completed` (no `onTheWay`).
-  /// Delivery: `… → ready → onTheWay → completed`.
+  /// Pickup: `pending → confirmed → preparing → ready → completed`
+  /// Delivery: `… → findingDriver → preparing → ready → pickedUpByDriver → onTheWay → completed`
   /// Cancel: only from `pending` or `confirmed`.
   static Set<OrderStatus> allowedNextStatuses({
     required OrderStatus current,
@@ -343,13 +353,21 @@ class OrderService {
       case OrderStatus.pending:
         return {OrderStatus.confirmed, OrderStatus.cancelled};
       case OrderStatus.confirmed:
-        return {OrderStatus.preparing, OrderStatus.cancelled};
+        if (fulfillmentType == FulfillmentType.pickup) {
+          return {OrderStatus.preparing, OrderStatus.cancelled};
+        }
+        return {OrderStatus.findingDriver, OrderStatus.cancelled};
+      case OrderStatus.findingDriver:
+        return {OrderStatus.preparing};
       case OrderStatus.preparing:
         return {OrderStatus.ready};
       case OrderStatus.ready:
         if (fulfillmentType == FulfillmentType.pickup) {
           return {OrderStatus.completed};
         }
+        // Prefer explicit hand-off; skipping `pickedUpByDriver` keeps older flows working.
+        return {OrderStatus.pickedUpByDriver, OrderStatus.onTheWay};
+      case OrderStatus.pickedUpByDriver:
         return {OrderStatus.onTheWay};
       case OrderStatus.onTheWay:
         return {OrderStatus.completed};
@@ -384,6 +402,12 @@ class OrderService {
     String orderId,
     OrderStatus newStatus,
   ) async {
+    if (newStatus == OrderStatus.cancelled) {
+      throw UnsupportedError(
+        'Use cancelOrderAsBuyer(...) or rejectPendingOrderAsMerchant(...). '
+        'Cancellations require a reason for refund and UX flows.',
+      );
+    }
     final existing = await getOrderById(orderId);
     if (existing == null) throw Exception('Order not found');
     if (existing.paymentStatus != PaymentStatus.paid) {
@@ -413,9 +437,64 @@ class OrderService {
     return updated;
   }
 
-  Future<OrderModel> cancelOrder(String orderId) async {
-    return updateOrderStatus(orderId, OrderStatus.cancelled);
+  /// Buyer cancelled (`confirmed`/`pending`). Sets [CancellationReason.buyerRequested].
+  Future<OrderModel> cancelOrderAsBuyer(String orderId) {
+    return _cancelWithReason(
+      orderId,
+      CancellationReason.buyerRequested,
+    );
   }
+
+  /// Merchant declined while still [OrderStatus.pending]. Sets [CancellationReason.merchantRejected].
+  Future<OrderModel> rejectPendingOrderAsMerchant(String orderId) async {
+    final existing = await getOrderById(orderId);
+    if (existing == null) throw Exception('Order not found');
+    if (existing.orderStatus != OrderStatus.pending) {
+      throw Exception('You can reject only orders that are still pending.');
+    }
+    return _cancelWithReason(
+      orderId,
+      CancellationReason.merchantRejected,
+      existingIfKnown: existing,
+    );
+  }
+
+  Future<OrderModel> _cancelWithReason(
+    String orderId,
+    CancellationReason cancellationReason, {
+    OrderModel? existingIfKnown,
+  }) async {
+    final existing = existingIfKnown ?? await getOrderById(orderId);
+    if (existing == null) throw Exception('Order not found');
+    if (existing.paymentStatus != PaymentStatus.paid) {
+      throw Exception('Order payment is not complete.');
+    }
+
+    if (existing.orderStatus == OrderStatus.cancelled) {
+      return existing;
+    }
+
+    assertValidStatusTransition(existing, OrderStatus.cancelled);
+
+    final docRef = _firestore.collection(_collection).doc(orderId);
+    await docRef.set(
+      <String, dynamic>{
+        'orderStatus':
+            OrderStatus.cancelled.toString().split('.').last,
+        'cancellationReason': cancellationReason.wireValue,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'completedAt': null,
+      },
+      SetOptions(merge: true),
+    );
+    final updated = await getOrderById(orderId);
+    if (updated == null) throw Exception('Order not found');
+    return updated;
+  }
+
+  /// @nodoc Prefer [cancelOrderAsBuyer].
+  Future<OrderModel> cancelOrder(String orderId) =>
+      cancelOrderAsBuyer(orderId);
 
   OrderModel _fromFirestore(Map<String, dynamic> data, String id) {
     final normalized = Map<String, dynamic>.from(data);
@@ -440,6 +519,27 @@ class OrderService {
     normalized['createdAt'] =
         normalized['createdAt'] ?? Timestamp.fromDate(DateTime.now());
 
-    return OrderModel.fromJson(normalized);
+    final parsed = OrderModel.fromJson(normalized);
+    return _coerceFulfillmentOrderStatus(parsed);
+  }
+
+  /// Pickup orders must never sit on delivery-only [OrderStatus] values (bad legacy data).
+  static OrderModel _coerceFulfillmentOrderStatus(OrderModel m) {
+    if (m.fulfillmentType != FulfillmentType.pickup) return m;
+
+    OrderStatus patched = m.orderStatus;
+    switch (m.orderStatus) {
+      case OrderStatus.findingDriver:
+      case OrderStatus.pickedUpByDriver:
+        patched = OrderStatus.preparing;
+        break;
+      case OrderStatus.onTheWay:
+        patched = OrderStatus.ready;
+        break;
+      default:
+        break;
+    }
+    if (patched == m.orderStatus) return m;
+    return m.copyWith(orderStatus: patched);
   }
 }

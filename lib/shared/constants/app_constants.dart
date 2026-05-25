@@ -151,7 +151,9 @@ class AppConstants {
   // ============================================================================
   // IMPACT METRICS
   // ============================================================================
-  static const double co2PerMeal = 2.5; // kg CO2 saved per meal
+  /// kg CO₂e per rescued portion ([CartItemModel.quantity]; server uses same factor).
+  /// See Too Good To Go–style avoidance factors (thesis methodology).
+  static const double co2PerMeal = 2.7;
   static const String currencySymbol = 'RM'; // Malaysian Ringgit
 
   // ============================================================================

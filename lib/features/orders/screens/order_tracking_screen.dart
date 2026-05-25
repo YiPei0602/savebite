@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -17,6 +18,7 @@ import '../../orders_payments/state/providers/order_provider.dart';
 import '../../orders_payments/domain/models/order_model.dart';
 import '../../../shared/utils/merchant_display_name_utils.dart';
 import '../../../shared/utils/rider_contact_utils.dart';
+import '../buyer_order_progress.dart';
 import '../../../shared/widgets/app_back_button.dart';
 
 /// Consumer-facing order tracking: live Firestore stream + status-driven UI.
@@ -250,8 +252,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         ? const <OrderStatus>[
             OrderStatus.pending,
             OrderStatus.confirmed,
+            OrderStatus.findingDriver,
             OrderStatus.preparing,
             OrderStatus.ready,
+            OrderStatus.pickedUpByDriver,
             OrderStatus.onTheWay,
             OrderStatus.completed,
           ]
@@ -275,30 +279,43 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     required OrderStatus next,
     required Random rng,
   }) {
-    // Pickup: pending → confirmed (2s) → preparing (3s) → ready (5s) → completed (2s).
-    // Delivery: same, plus ready → onTheWay (2s), onTheWay → completed (6–8s).
+    // Pickup: pending → confirmed (2s) → preparing → ready → completed.
+    // Delivery: adds findingDriver, handoff + on-the-way gaps.
     if (fulfillmentType == FulfillmentType.delivery &&
         current == OrderStatus.onTheWay &&
         next == OrderStatus.completed) {
-      final seconds = 30 + rng.nextInt(3); // 6, 7, 8
+      final seconds = 6 + rng.nextInt(3);
       return Duration(seconds: seconds);
     }
     if (current == OrderStatus.pending && next == OrderStatus.confirmed) {
       return const Duration(seconds: 2);
     }
+    if (current == OrderStatus.confirmed && next == OrderStatus.findingDriver) {
+      return const Duration(seconds: 2);
+    }
     if (current == OrderStatus.confirmed && next == OrderStatus.preparing) {
+      return const Duration(seconds: 3);
+    }
+    if (current == OrderStatus.findingDriver && next == OrderStatus.preparing) {
       return const Duration(seconds: 3);
     }
     if (current == OrderStatus.preparing && next == OrderStatus.ready) {
       return const Duration(seconds: 5);
     }
-    if (current == OrderStatus.ready && next == OrderStatus.onTheWay) {
-      return const Duration(seconds: 5);
+    if (current == OrderStatus.ready &&
+        next == OrderStatus.pickedUpByDriver) {
+      return const Duration(seconds: 2);
     }
     if (current == OrderStatus.ready && next == OrderStatus.completed) {
       return const Duration(seconds: 2);
     }
-    // Default small delay to avoid tight loops if flow changes.
+    if (current == OrderStatus.pickedUpByDriver &&
+        next == OrderStatus.onTheWay) {
+      return const Duration(seconds: 2);
+    }
+    if (current == OrderStatus.ready && next == OrderStatus.onTheWay) {
+      return const Duration(seconds: 5);
+    }
     return const Duration(seconds: 1);
   }
 
@@ -621,7 +638,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     if (next == OrderStatus.confirmed && prev == OrderStatus.pending) {
       message = 'Order confirmed';
     } else if (next == OrderStatus.cancelled && prev != OrderStatus.cancelled) {
-      message = 'Order cancelled';
+      message = BuyerOrderProgress.cancellationSnackBarMessage(order);
     }
     final msg = message;
     if (msg == null) return;
@@ -725,11 +742,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 ],
                 _buildStatusHeroCard(order),
                 const SizedBox(height: AppConstants.paddingL),
-                if (order.fulfillmentType == FulfillmentType.delivery) ...[
+                if (order.fulfillmentType == FulfillmentType.delivery &&
+                    order.orderStatus != OrderStatus.completed) ...[
                   _buildRiderCard(order),
                   const SizedBox(height: AppConstants.paddingL),
                 ],
-                if (order.orderStatus != OrderStatus.cancelled) ...[
+                if (order.orderStatus != OrderStatus.cancelled ||
+                    BuyerOrderProgress.isMerchantRejectedTimeline(order)) ...[
                   _buildProgressCard(order),
                   const SizedBox(height: AppConstants.paddingL),
                 ],
@@ -747,14 +766,15 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   Widget _buildStatusHeroCard(OrderModel order) {
     final s = order.orderStatus;
-    final description = _statusDescription(s, order.fulfillmentType);
+    final description = _statusDescription(order);
     final style = _statusStyle(s, order.fulfillmentType);
     final isDeliveryOnTheWay = order.fulfillmentType == FulfillmentType.delivery &&
         order.orderStatus == OrderStatus.onTheWay;
     final deliveryMetrics =
         isDeliveryOnTheWay ? _computeDeliveryDistanceEta(order) : null;
     final etaLine = isDeliveryOnTheWay ? null : _deliveryEtaLine(order);
-    final title = _statusTitle(s, order.fulfillmentType);
+    final title = _statusTitle(order);
+    final refundHint = BuyerOrderProgress.merchantRejectRefundSubtitle(order).trim();
 
     final id = order.id.isNotEmpty ? order.id : widget.orderId;
     final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
@@ -841,6 +861,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                     ),
                   ],
+                  if (refundHint.isNotEmpty) ...[
+                    const SizedBox(height: AppConstants.paddingS),
+                    Text(
+                      refundHint,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ],
             ),
@@ -881,9 +911,32 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildProgressCard(OrderModel order) {
-    final labels = _progressLabels(order.fulfillmentType);
-    final currentIndex = _progressIndex(order);
-    final currentColor = _statusStyle(order.orderStatus, order.fulfillmentType).color;
+    final bool merchantReject =
+        BuyerOrderProgress.isMerchantRejectedTimeline(order);
+
+    late final List<String> titles;
+    late final List<String> meanings;
+    late final int len;
+    late final int currentIndex;
+    late final Color currentColor;
+    late final bool isTerminalDone;
+
+    if (merchantReject) {
+      titles = BuyerOrderProgress.merchantRejectTitles;
+      meanings = BuyerOrderProgress.merchantRejectMeanings;
+      len = titles.length;
+      currentIndex = BuyerOrderProgress.stepIndex(order);
+      currentColor = AppColors.error;
+      isTerminalDone = false;
+    } else {
+      titles = BuyerOrderProgress.labelsForFulfillment(order.fulfillmentType);
+      meanings = BuyerOrderProgress.meaningsForFulfillment(order.fulfillmentType);
+      len = titles.length;
+      currentIndex = BuyerOrderProgress.stepIndex(order);
+      currentColor =
+          _statusStyle(order.orderStatus, order.fulfillmentType).color;
+      isTerminalDone = order.orderStatus == OrderStatus.completed;
+    }
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingM),
@@ -897,17 +950,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         children: [
           Text('Progress', style: AppTypography.h5),
           const SizedBox(height: AppConstants.paddingM),
-          for (int i = 0; i < labels.length; i++)
+          for (int i = 0; i < len; i++)
             _buildTimelineRow(
-              label: labels[i],
-              isDone: order.orderStatus == OrderStatus.completed
-                  ? true
-                  : i < currentIndex,
-              isCurrent: order.orderStatus == OrderStatus.completed
-                  ? i == labels.length - 1
-                  : i == currentIndex,
-              isLast: i == labels.length - 1,
+              title: titles[i],
+              meaning: meanings[i],
+              isDone: merchantReject ? i == 0 : (isTerminalDone ? true : i < currentIndex),
+              isCurrent: merchantReject ? i == 1 : (isTerminalDone ? i == len - 1 : i == currentIndex),
+              isLast: i == len - 1,
               currentColor: currentColor,
+              dotWidgetOverride: merchantReject && i == 1
+                  ? Icon(Icons.highlight_off_rounded,
+                      color: AppColors.error, size: 24)
+                  : null,
             ),
         ],
       ),
@@ -915,31 +969,34 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildTimelineRow({
-    required String label,
+    required String title,
+    required String meaning,
     required bool isDone,
     required bool isCurrent,
     required bool isLast,
     required Color currentColor,
+    Widget? dotWidgetOverride,
   }) {
     final Color dotColor = isDone
         ? AppColors.success
         : isCurrent
             ? currentColor
             : AppColors.divider;
-    final Widget dot = isDone
-        ? const Icon(Icons.check_circle, size: 22, color: AppColors.success)
-        : Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isCurrent ? dotColor : Colors.transparent,
-              border: Border.all(
-                color: isCurrent ? dotColor : AppColors.divider,
-                width: 2.5,
-              ),
-            ),
-          );
+    final Widget dot = dotWidgetOverride ??
+        (isDone
+            ? const Icon(Icons.check_circle, size: 22, color: AppColors.success)
+            : Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isCurrent ? dotColor : Colors.transparent,
+                  border: Border.all(
+                    color: isCurrent ? dotColor : AppColors.divider,
+                    width: 2.5,
+                  ),
+                ),
+              ));
 
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : AppConstants.paddingM),
@@ -960,14 +1017,31 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
           const SizedBox(width: AppConstants.paddingM),
           Expanded(
-            child: Text(
-              label,
-              style: AppTypography.bodyMedium.copyWith(
-                fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
-                color: isDone || isCurrent
-                    ? AppColors.textPrimary
-                    : AppColors.textSecondary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                    color: isDone || isCurrent
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  meaning,
+                  style: AppTypography.bodySmall.copyWith(
+                    height: 1.25,
+                    color: isDone
+                        ? AppColors.textSecondary.withOpacity(0.85)
+                        : isCurrent
+                            ? AppColors.textSecondary
+                            : AppColors.textTertiary.withOpacity(0.9),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1000,6 +1074,95 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final status = order.orderStatus;
     final canCancel =
         status == OrderStatus.pending || status == OrderStatus.confirmed;
+
+    if (status == OrderStatus.completed) {
+      return SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: () => context.go('/home'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF212121),
+            foregroundColor: Colors.white,
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(
+              vertical: AppConstants.paddingM,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(
+                AppConstants.primaryCtaPillRadius,
+              ),
+            ),
+          ),
+          child: Text(
+            'Home',
+            style: AppTypography.buttonMedium.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (status == OrderStatus.cancelled) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => context.go('/home'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF212121),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppConstants.paddingM,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    AppConstants.primaryCtaPillRadius,
+                  ),
+                ),
+              ),
+              child: Text(
+                'Back to home',
+                style: AppTypography.buttonMedium.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppConstants.paddingS),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () => context.go('/home?tab=1'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary, width: 1.5),
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppConstants.paddingM,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    AppConstants.primaryCtaPillRadius,
+                  ),
+                ),
+              ),
+              child: Text(
+                'View orders',
+                style: AppTypography.buttonMedium.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
 
     return Column(
       children: [
@@ -1061,64 +1224,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
       ],
     );
-  }
-
-  List<String> _progressLabels(FulfillmentType type) {
-    if (type == FulfillmentType.pickup) {
-      return const <String>[
-        'Order placed',
-        'Order accepted',
-        'Preparing',
-        'Ready',
-        'Completed',
-      ];
-    }
-    return const <String>[
-      'Order placed',
-      'Order accepted',
-      'Preparing',
-      'Searching rider',
-      'Out for delivery',
-      'Completed',
-    ];
-  }
-
-  int _progressIndex(OrderModel order) {
-    final s = order.orderStatus;
-    final type = order.fulfillmentType;
-    if (type == FulfillmentType.pickup) {
-      switch (s) {
-        case OrderStatus.pending:
-          return 0;
-        case OrderStatus.confirmed:
-          return 1;
-        case OrderStatus.preparing:
-          return 2;
-        case OrderStatus.ready:
-          return 3;
-        case OrderStatus.completed:
-          return 4;
-        case OrderStatus.onTheWay:
-        case OrderStatus.cancelled:
-          return 0;
-      }
-    }
-    switch (s) {
-      case OrderStatus.pending:
-        return 0;
-      case OrderStatus.confirmed:
-        return 1;
-      case OrderStatus.preparing:
-        return 2;
-      case OrderStatus.ready:
-        return 3;
-      case OrderStatus.onTheWay:
-        return 4;
-      case OrderStatus.completed:
-        return 5;
-      case OrderStatus.cancelled:
-        return 0;
-    }
   }
 
   Widget _buildRiderCard(OrderModel order) {
@@ -1207,13 +1312,12 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     onPressed: () async {
-                      final ok = await openRiderWhatsApp(phone);
+                      final result = await openRiderWhatsApp(phone);
                       if (!mounted) return;
-                      if (!ok) {
+                      final message = riderWhatsAppLaunchSnackMessage(result);
+                      if (message != null) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Unable to open WhatsApp'),
-                          ),
+                          SnackBar(content: Text(message)),
                         );
                       }
                     },
@@ -1300,6 +1404,9 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   if (order.orderStatus == OrderStatus.onTheWay) {
     fromLat = order.driverLatitude ?? order.merchantLatitude;
     fromLng = order.driverLongitude ?? order.merchantLongitude;
+  } else if (order.orderStatus == OrderStatus.pickedUpByDriver) {
+    fromLat = order.driverLatitude ?? order.merchantLatitude;
+    fromLng = order.driverLongitude ?? order.merchantLongitude;
   } else {
     fromLat = order.merchantLatitude;
     fromLng = order.merchantLongitude;
@@ -1314,45 +1421,65 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   return (mins: mins, kmDisplay: kmDisplay);
 }
 
-String _statusTitle(OrderStatus s, FulfillmentType type) {
+String _statusTitle(OrderModel order) {
+  final s = order.orderStatus;
+  final type = order.fulfillmentType;
+  if (s == OrderStatus.cancelled) {
+    return BuyerOrderProgress.cancellationHeroTitle(order);
+  }
   switch (s) {
     case OrderStatus.pending:
-      return 'Waiting for merchant';
+      return 'Order placed';
     case OrderStatus.confirmed:
       return 'Order accepted';
+    case OrderStatus.findingDriver:
+      return 'Finding driver';
     case OrderStatus.preparing:
-      return 'Preparing your food';
+      return 'Preparing order';
     case OrderStatus.ready:
       return type == FulfillmentType.pickup
           ? 'Ready for pickup'
-          : 'Searching rider';
+          : 'Order ready — driver handoff soon';
+    case OrderStatus.pickedUpByDriver:
+      return 'Picked up by driver';
     case OrderStatus.onTheWay:
-      return 'Out for delivery';
+      return 'On the way';
     case OrderStatus.completed:
-      return 'Completed';
+      return type == FulfillmentType.pickup ? 'Collected' : 'Delivered';
     case OrderStatus.cancelled:
       return 'Cancelled';
   }
 }
 
-String _statusDescription(OrderStatus s, FulfillmentType type) {
+String _statusDescription(OrderModel order) {
+  final s = order.orderStatus;
+  final type = order.fulfillmentType;
+  if (s == OrderStatus.cancelled) {
+    return BuyerOrderProgress.cancellationHeroDescription(order);
+  }
   switch (s) {
     case OrderStatus.pending:
-      return 'Waiting for the store to accept your order.';
+      return 'Your order has been submitted. Waiting for the store to accept.';
     case OrderStatus.confirmed:
-      return 'The store has accepted your order.';
+      return 'Merchant accepted your order.';
+    case OrderStatus.findingDriver:
+      return 'Searching for a delivery driver.';
     case OrderStatus.preparing:
-      return 'Your order is being prepared.';
+      return 'Your food is being prepared.';
     case OrderStatus.ready:
       return type == FulfillmentType.pickup
-          ? 'Your order is ready for pickup.'
-          : 'The store is arranging a rider for your delivery.';
+          ? 'Ready to collect during pickup time.'
+          : 'Packed and waiting for driver collection.';
+    case OrderStatus.pickedUpByDriver:
+      return 'The driver collected your order from the store.';
     case OrderStatus.onTheWay:
-      return 'Your order is out for delivery.';
+      return 'Driver is heading to your location.';
     case OrderStatus.completed:
-      return 'Thank you for your order.';
+      return type == FulfillmentType.pickup
+          ? 'Pickup complete. Thank you!'
+          : 'Delivered successfully. Enjoy!';
     case OrderStatus.cancelled:
-      return 'This order has been cancelled.';
+      return '';
   }
 }
 
@@ -1362,10 +1489,14 @@ String _statusDescription(OrderStatus s, FulfillmentType type) {
       return (color: AppColors.success, icon: Icons.done_all);
     case OrderStatus.cancelled:
       return (color: AppColors.error, icon: Icons.cancel);
+    case OrderStatus.findingDriver:
+      return (color: AppColors.primary, icon: Icons.search);
     case OrderStatus.ready:
       return type == FulfillmentType.pickup
           ? (color: AppColors.primary, icon: Icons.storefront_outlined)
           : (color: AppColors.primary, icon: Icons.inventory_2_outlined);
+    case OrderStatus.pickedUpByDriver:
+      return (color: AppColors.primary, icon: Icons.hail_outlined);
     case OrderStatus.onTheWay:
       return (color: AppColors.primary, icon: Icons.local_shipping_outlined);
     case OrderStatus.preparing:

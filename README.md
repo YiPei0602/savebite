@@ -56,15 +56,15 @@ flutter run -d chrome
 # macOS Desktop
 flutter run -d macos
 
-# Android
-flutter run -d android
+# Android (add GOOGLE_MAPS_API_KEY to android/local.properties; copy android/local.properties.example)
+flutter run -d android --dart-define=GOOGLE_PLACES_API_KEY=AIzaSyBv5oicMSksDGRYf716sXuSHv0zx8SXOSs
 
 # iOS (recommended if you have multiple simulators with the same name, e.g. several "iPhone 17")
 chmod +x scripts/run_ios_sim.sh
-./scripts/run_ios_sim.sh --dart-define=GOOGLE_PLACES_API_KEY=your_key_here
+./scripts/run_ios_sim.sh --dart-define=GOOGLE_PLACES_API_KEY=AIzaSyBv5oicMSksDGRYf716sXuSHv0zx8SXOSs
 
 # iOS (generic; may fail if `-d "iPhone 17"` resolves to a simulator runtime Xcode cannot build)
-flutter run -d ios
+flutter run -d ios --dart-define=GOOGLE_PLACES_API_KEY=AIzaSyBv5oicMSksDGRYf716sXuSHv0zx8SXOSs
 ```
 
 **If Xcode says “Unable to find a destination”, “iOS 26.x is not installed”, or Stripe / actool errors like** `No simulator runtime version from ["23B86", …] available to use with iphonesimulator SDK version 23F73`: the **Simulator SDK build** (here **23F73** = iOS 26.5) must match an **installed simulator runtime** build. Older runtimes only (**23B86**, **23C54**, **23E244**, …) are not enough — install the **iOS Simulator** that matches this Xcode (**Xcode → Settings → Platforms**, or `xcodebuild -downloadPlatform iOS`).

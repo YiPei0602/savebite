@@ -10,13 +10,13 @@ import 'package:savebite/features/marketplace_surplus/domain/models/merchant_mod
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/features/orders_payments/state/providers/order_provider.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
-import 'package:savebite/features/orders_payments/state/providers/cart_provider.dart';
+import 'package:savebite/features/orders/buyer_order_progress.dart';
 import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
 
 /// Order History Screen
 ///
-/// Displays user's past orders from OrderProvider with status and reorder functionality.
+/// Displays user's past orders from OrderProvider with status filters.
 /// Used in the 'Orders' tab of main navigation.
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
@@ -26,7 +26,7 @@ class OrderHistoryScreen extends StatefulWidget {
 }
 
 class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
-  String _selectedFilter = 'All';
+  static const _filters = ['All', 'Completed', 'Cancelled'];
 
   @override
   void initState() {
@@ -62,12 +62,19 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  List<OrderModel> _getFilteredOrders(List<OrderModel> orders) {
-    switch (_selectedFilter) {
+  List<OrderModel> _getFilteredOrders(
+    List<OrderModel> orders,
+    String filter,
+  ) {
+    switch (filter) {
       case 'Completed':
-        return orders.where((o) => o.orderStatus == OrderStatus.completed).toList();
+        return orders
+            .where((o) => o.orderStatus == OrderStatus.completed)
+            .toList();
       case 'Cancelled':
-        return orders.where((o) => o.orderStatus == OrderStatus.cancelled).toList();
+        return orders
+            .where((o) => o.orderStatus == OrderStatus.cancelled)
+            .toList();
       default:
         return orders;
     }
@@ -83,95 +90,17 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         return 'Pending';
       case OrderStatus.confirmed:
         return 'Confirmed';
+      case OrderStatus.findingDriver:
+        return 'Finding driver';
       case OrderStatus.preparing:
         return 'Preparing';
       case OrderStatus.ready:
         return 'Ready';
+      case OrderStatus.pickedUpByDriver:
+        return 'Driver picked up';
       case OrderStatus.onTheWay:
         return 'On the way';
-      default:
-        return status.toString().split('.').last;
     }
-  }
-
-  void _reorderItems(
-    BuildContext context,
-    OrderModel order,
-    CartProvider cartProvider,
-    MerchantProvider merchantProvider,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Reorder', style: AppTypography.h4),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Add these items to your cart?',
-              style: AppTypography.bodyMedium,
-            ),
-            const SizedBox(height: AppConstants.paddingM),
-            ...(order.items.map((cartItem) {
-              return Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: AppConstants.paddingXS),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check_circle,
-                        color: AppColors.success, size: 16),
-                    const SizedBox(width: AppConstants.paddingS),
-                    Expanded(
-                      child: Text(
-                        cartItem.foodItem.name,
-                        style: AppTypography.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            })),
-            const SizedBox(height: AppConstants.paddingM),
-            Text(
-              'From: ${_shopDisplayNameForOrder(order, merchantProvider)}',
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cancel', style: AppTypography.bodyMedium),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              for (final cartItem in order.items) {
-                try {
-                  cartProvider.addItem(
-                    cartItem.foodItem,
-                    quantity: cartItem.quantity,
-                  );
-                } catch (_) {}
-              }
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('${order.totalItems} items added to cart'),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            child: Text('Add to Cart', style: AppTypography.buttonMedium),
-          ),
-        ],
-      ),
-    );
   }
 
   void _viewOrderDetails(
@@ -187,8 +116,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(AppConstants.radiusL)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppConstants.radiusL),
+        ),
       ),
       builder: (context) {
         return DraggableScrollableSheet(
@@ -197,6 +127,10 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           maxChildSize: 0.9,
           expand: false,
           builder: (context, scrollController) {
+            final cancelNote = order.orderStatus == OrderStatus.cancelled
+                ? BuyerOrderProgress.cancellationHistoryDetailNote(order)
+                : null;
+
             return SingleChildScrollView(
               controller: scrollController,
               padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -234,6 +168,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                         ? 'Self-Pickup'
                         : 'Delivery',
                   ),
+                  if (cancelNote != null && cancelNote.isNotEmpty) ...[
+                    const SizedBox(height: AppConstants.paddingM),
+                    Text(
+                      cancelNote,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
                   if (order.fulfillmentType == FulfillmentType.delivery) ...[
                     const SizedBox(height: AppConstants.paddingM),
                     Text('Rider', style: AppTypography.h5),
@@ -265,7 +209,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                   ...(order.items.map((cartItem) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(
-                          vertical: AppConstants.paddingS),
+                        vertical: AppConstants.paddingS,
+                      ),
                       child: Row(
                         children: [
                           Container(
@@ -309,25 +254,8 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingL),
-                  if (order.orderStatus == OrderStatus.completed)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _reorderItems(
-                            context,
-                            order,
-                            context.read<CartProvider>(),
-                            context.read<MerchantProvider>(),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary),
-                        child: Text('Reorder', style: AppTypography.buttonMedium),
-                      ),
-                    )
-                  else if (order.orderStatus != OrderStatus.cancelled)
+                  if (order.orderStatus != OrderStatus.completed &&
+                      order.orderStatus != OrderStatus.cancelled)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -336,9 +264,12 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                           context.push('/order-tracking/${order.id}');
                         },
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary),
-                        child:
-                            Text('Track Order', style: AppTypography.buttonMedium),
+                          backgroundColor: AppColors.primary,
+                        ),
+                        child: Text(
+                          'Track Order',
+                          style: AppTypography.buttonMedium,
+                        ),
                       ),
                     ),
                 ],
@@ -358,8 +289,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         children: [
           Text(
             label,
-            style: AppTypography.bodyMedium
-                .copyWith(color: AppColors.textSecondary),
+            style: AppTypography.bodyMedium.copyWith(
+              color: AppColors.textSecondary,
+            ),
           ),
           Text(
             value,
@@ -409,7 +341,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(String filter) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(AppConstants.paddingXL),
@@ -425,9 +357,9 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
             Text('No Orders Found', style: AppTypography.h3),
             const SizedBox(height: AppConstants.paddingS),
             Text(
-              _selectedFilter == 'All'
+              filter == 'All'
                   ? 'You haven\'t placed any orders yet'
-                  : 'No $_selectedFilter orders',
+                  : 'No $filter orders',
               style: AppTypography.bodyMedium.copyWith(
                 color: AppColors.textSecondary,
               ),
@@ -439,61 +371,45 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     );
   }
 
-  void _showFilterOptions() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(AppConstants.radiusL)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingL),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Filter Orders', style: AppTypography.h4),
-              const SizedBox(height: AppConstants.paddingM),
-              ListTile(
-                leading:
-                    const Icon(Icons.all_inclusive, color: AppColors.primary),
-                title: Text('All Orders', style: AppTypography.bodyMedium),
-                trailing: _selectedFilter == 'All'
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () {
-                  setState(() => _selectedFilter = 'All');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading:
-                    const Icon(Icons.check_circle, color: AppColors.success),
-                title: Text('Completed', style: AppTypography.bodyMedium),
-                trailing: _selectedFilter == 'Completed'
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () {
-                  setState(() => _selectedFilter = 'Completed');
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.cancel, color: AppColors.error),
-                title: Text('Cancelled', style: AppTypography.bodyMedium),
-                trailing: _selectedFilter == 'Cancelled'
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () {
-                  setState(() => _selectedFilter = 'Cancelled');
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
+  Widget _buildOrdersList({
+    required List<OrderModel> orders,
+    required String filter,
+    required MerchantProvider merchantProvider,
+  }) {
+    if (orders.isEmpty) {
+      return _buildEmptyState(filter);
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(AppConstants.paddingM),
+      itemCount: orders.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        return _buildOrderCard(
+          context,
+          orders[index],
+          merchantProvider,
         );
       },
+    );
+  }
+
+  PreferredSizeWidget _buildOrdersAppBar() {
+    return AppBar(
+      title: Text('Past Orders', style: AppTypography.h3),
+      backgroundColor: Colors.white,
+      elevation: 0,
+      centerTitle: true,
+      leading: const AppBackButton(color: AppColors.textPrimary),
+      bottom: TabBar(
+        labelColor: AppColors.primary,
+        unselectedLabelColor: AppColors.textSecondary,
+        indicatorColor: AppColors.primary,
+        labelStyle: AppTypography.caption.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+        tabs: _filters.map((f) => Tab(text: f)).toList(),
+      ),
     );
   }
 
@@ -504,84 +420,28 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
         final paidOnly = orderProvider.orders
             .where((o) => o.paymentStatus == PaymentStatus.paid)
             .toList();
-        final filteredOrders = _getFilteredOrders(paidOnly);
 
-        return Scaffold(
-          backgroundColor: AppColors.background,
-          appBar: AppBar(
-            title: Text('Past Orders', style: AppTypography.h3),
-            backgroundColor: AppColors.background,
-            elevation: 0,
-            leading: const AppBackButton(color: AppColors.textPrimary),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.filter_list,
-                    color: AppColors.textPrimary),
-                onPressed: _showFilterOptions,
-              ),
-            ],
+        return DefaultTabController(
+          length: _filters.length,
+          child: Scaffold(
+            backgroundColor: Colors.white,
+            appBar: _buildOrdersAppBar(),
+            body: orderProvider.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
+                    children: _filters.map((filter) {
+                      final filteredOrders =
+                          _getFilteredOrders(paidOnly, filter);
+                      return _buildOrdersList(
+                        orders: filteredOrders,
+                        filter: filter,
+                        merchantProvider: merchantProvider,
+                      );
+                    }).toList(),
+                  ),
           ),
-          body: orderProvider.isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    _buildFilterChips(),
-                    Expanded(
-                      child: filteredOrders.isEmpty
-                          ? _buildEmptyState()
-                          : ListView.builder(
-                              padding:
-                                  const EdgeInsets.all(AppConstants.paddingM),
-                              itemCount: filteredOrders.length,
-                              itemBuilder: (context, index) {
-                                final order = filteredOrders[index];
-                                return _buildOrderCard(
-                                  context,
-                                  order,
-                                  merchantProvider,
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                ),
         );
       },
-    );
-  }
-
-  Widget _buildFilterChips() {
-    final filters = ['All', 'Completed', 'Cancelled'];
-
-    return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingS),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingM),
-        itemCount: filters.length,
-        itemBuilder: (context, index) {
-          final filter = filters[index];
-          final isSelected = _selectedFilter == filter;
-
-          return Padding(
-            padding: const EdgeInsets.only(right: AppConstants.paddingS),
-            child: FilterChip(
-              label: Text(filter),
-              selected: isSelected,
-              onSelected: (_) => setState(() => _selectedFilter = filter),
-              backgroundColor: AppColors.surface,
-              selectedColor: AppColors.primary,
-              labelStyle: AppTypography.bodySmall.copyWith(
-                color: isSelected
-                    ? AppColors.textOnPrimary
-                    : AppColors.textPrimary,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 
@@ -591,149 +451,141 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     MerchantProvider merchantProvider,
   ) {
     final statusStr = _formatOrderStatus(order.orderStatus);
-    final isCompleted = order.orderStatus == OrderStatus.completed;
+    final cancelSubtitle =
+        BuyerOrderProgress.cancellationHistorySubtitle(order);
     final dateStr = DateFormat('d MMM yyyy').format(order.createdAt);
     final timeStr = DateFormat('h:mm a').format(order.createdAt);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: AppConstants.paddingM),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.border.withOpacity(0.6)),
       ),
-      child: InkWell(
-        onTap: () =>
-            _viewOrderDetails(context, order, merchantProvider),
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        child: Padding(
-          padding: const EdgeInsets.all(AppConstants.paddingM),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _shopDisplayNameForOrder(order, merchantProvider),
-                      style: AppTypography.h5,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.paddingS),
-                  _buildStatusBadge(statusStr),
-                ],
-              ),
-              const SizedBox(height: AppConstants.paddingS),
-              Row(
-                children: [
-                  Icon(Icons.calendar_today,
-                      size: 14, color: AppColors.textSecondary),
-                  const SizedBox(width: AppConstants.paddingXS),
-                  Text(
-                    '$dateStr, $timeStr',
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppConstants.paddingXS),
-              Row(
-                children: [
-                  Icon(Icons.shopping_bag_outlined,
-                      size: 14, color: AppColors.textSecondary),
-                  const SizedBox(width: AppConstants.paddingXS),
-                  Text(
-                    '${order.totalItems} ${order.totalItems == 1 ? 'item' : 'items'}',
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppConstants.paddingM),
-              const Divider(),
-              const SizedBox(height: AppConstants.paddingM),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total',
-                        style: AppTypography.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: AppConstants.paddingXS),
-                      Text(
-                        '${AppConstants.currencySymbol}${order.totalPrice.toStringAsFixed(2)}',
-                        style: AppTypography.h5.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (isCompleted)
-                    ElevatedButton(
-                      onPressed: () => _reorderItems(
-                        context,
-                        order,
-                        context.read<CartProvider>(),
-                        merchantProvider,
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppConstants.paddingL,
-                          vertical: AppConstants.paddingS,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppConstants.radiusS),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.refresh, size: 16),
-                          const SizedBox(width: AppConstants.paddingXS),
-                          Text('Reorder', style: AppTypography.buttonSmall),
-                        ],
-                      ),
-                    ),
-                  if (!isCompleted && order.orderStatus != OrderStatus.cancelled)
-                    OutlinedButton(
-                      onPressed: () => _viewOrderDetails(
-                        context,
-                        order,
-                        merchantProvider,
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        side: const BorderSide(color: AppColors.border),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppConstants.paddingM,
-                          vertical: AppConstants.paddingS,
-                        ),
-                      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _viewOrderDetails(context, order, merchantProvider),
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+          child: Padding(
+            padding: const EdgeInsets.all(AppConstants.paddingM),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
                       child: Text(
-                        'View Details',
-                        style: AppTypography.buttonSmall.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
+                        _shopDisplayNameForOrder(order, merchantProvider),
+                        style: AppTypography.h5,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: AppConstants.paddingS),
+                    _buildStatusBadge(statusStr),
+                  ],
+                ),
+                if (cancelSubtitle != null) ...[
+                  const SizedBox(height: AppConstants.paddingXS),
+                  Text(
+                    cancelSubtitle,
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textSecondary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
                 ],
-              ),
-            ],
+                const SizedBox(height: AppConstants.paddingS),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.calendar_today,
+                      size: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: AppConstants.paddingXS),
+                    Text(
+                      '$dateStr, $timeStr',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.paddingXS),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.shopping_bag_outlined,
+                      size: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: AppConstants.paddingXS),
+                    Text(
+                      '${order.totalItems} ${order.totalItems == 1 ? 'item' : 'items'}',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.paddingM),
+                const Divider(),
+                const SizedBox(height: AppConstants.paddingM),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Total',
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.paddingXS),
+                        Text(
+                          '${AppConstants.currencySymbol}${order.totalPrice.toStringAsFixed(2)}',
+                          style: AppTypography.h5.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (order.orderStatus != OrderStatus.completed &&
+                        order.orderStatus != OrderStatus.cancelled)
+                      OutlinedButton(
+                        onPressed: () => _viewOrderDetails(
+                          context,
+                          order,
+                          merchantProvider,
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.textSecondary,
+                          side: const BorderSide(color: AppColors.border),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.paddingM,
+                            vertical: AppConstants.paddingS,
+                          ),
+                        ),
+                        child: Text(
+                          'View Details',
+                          style: AppTypography.buttonSmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 }
-

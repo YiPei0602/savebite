@@ -230,11 +230,27 @@ class ImpactData {
   });
 
   factory ImpactData.fromJson(Map<String, dynamic> json) {
+    final mealsSaved = json['mealsSaved'];
+    final ordersCompleted = json['ordersCompleted'];
+
+    int asInt(dynamic v) {
+      if (v == null) return 0;
+      if (v is int) return v;
+      if (v is num) return v.round();
+      return int.tryParse('$v') ?? 0;
+    }
+
+    double asDouble(dynamic v) {
+      if (v == null) return 0.0;
+      if (v is num) return v.toDouble();
+      return double.tryParse('$v') ?? 0.0;
+    }
+
     return ImpactData(
-      mealsSaved: json['mealsSaved'] as int,
-      co2Reduced: (json['co2Reduced'] as num).toDouble(),
-      moneySaved: (json['moneySaved'] as num).toDouble(),
-      ordersCompleted: json['ordersCompleted'] as int,
+      mealsSaved: asInt(mealsSaved),
+      co2Reduced: asDouble(json['co2Reduced']),
+      moneySaved: asDouble(json['moneySaved']),
+      ordersCompleted: asInt(ordersCompleted),
     );
   }
 

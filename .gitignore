@@ -41,3 +41,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Machine-specific SDK paths; keep Maps key via android/local.properties.example
+/android/local.properties

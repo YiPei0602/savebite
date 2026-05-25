@@ -44,11 +44,13 @@ service cloud.firestore {
         && request.resource.data.merchantId == resource.data.merchantId
         && resource.data.orderStatus in ['pending', 'confirmed']
         && request.resource.data.orderStatus == 'cancelled'
+        && request.resource.data.cancellationReason == 'buyerRequested'
         && request.resource.data.diff(resource.data).changedKeys()
           .hasOnly([
             'orderStatus',
             'updatedAt',
-            'completedAt'
+            'completedAt',
+            'cancellationReason'
           ]);
     }
 
@@ -65,9 +67,25 @@ service cloud.firestore {
         && request.resource.data.reservedStock <= request.resource.data.stock;
     }
 
-    // Users can read/write only their own user document.
+    /// Clients cannot set or clear sustainability impact bookkeeping (Cloud Function only).
+    function orderSustainabilityBookkeepingUntouched() {
+      return !request.resource.data.diff(resource.data).changedKeys().hasAny([
+        'sustainabilityImpactApplied',
+        'sustainabilityImpactAppliedAt'
+      ]);
+    }
+
+    // Users can manage their own document; impactData updates only via Admin SDK (Cloud Function).
     match /users/{userId} {
-      allow read, create, update, delete: if signedIn() && request.auth.uid == userId;
+      allow read, create: if signedIn() && request.auth.uid == userId;
+
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).changedKeys().hasAny([
+          'impactData'
+        ]);
+
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /merchants/{merchantId} {
@@ -91,7 +109,8 @@ service cloud.firestore {
         || ownsMerchantId(resource.data.merchantId)
       );
       allow update: if signedIn() && (
-        ownsMerchantId(resource.data.merchantId)
+        (ownsMerchantId(resource.data.merchantId)
+          && orderSustainabilityBookkeepingUntouched())
         || buyerCancelsOrderOnly()
       );
       allow delete: if false;

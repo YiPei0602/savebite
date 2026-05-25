@@ -7,7 +7,9 @@ import 'package:savebite/shared/constants/app_constants.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
 import 'package:savebite/features/auth_profile_impact/domain/models/user_model.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/utils/impact_display.dart';
 import 'package:savebite/features/auth_profile_impact/presentation/utils/profile_photo_picker.dart';
+import 'package:savebite/features/auth_profile_impact/presentation/widgets/impact_profile_cards.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 
@@ -41,7 +43,11 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       _buildProfileHeader(context, user),
                       const SizedBox(height: AppConstants.paddingL),
-                      _buildImpactDashboard(user.impactData),
+                      _buildImpactDashboard(
+                        context,
+                        user.impactData,
+                        isMerchant: isMerchant,
+                      ),
                       const SizedBox(height: AppConstants.paddingL),
                       if (isMerchant) ...[
                         _buildMerchantStoreInfoSection(context, user),
@@ -294,204 +300,95 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  /// Impact Dashboard (Image 2 Style)
-  Widget _buildImpactDashboard(ImpactData impactData) {
+  /// Role-specific sustainability summary on Profile.
+  Widget _buildImpactDashboard(
+    BuildContext context,
+    ImpactData impactData, {
+    required bool isMerchant,
+  }) {
     final moneySaved = impactData.moneySaved;
     final co2Reduced = impactData.co2Reduced;
     final mealsSaved = impactData.mealsSaved;
+    const gap = AppConstants.paddingM;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Your impact',
-            style: AppTypography.h2.copyWith(
-              color: AppColors.primary,
+          InkWell(
+            onTap: () => context.push('/impact'),
+            borderRadius: BorderRadius.circular(AppConstants.radiusS),
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppConstants.paddingXS),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your impact',
+                          style: AppTypography.h2.copyWith(
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.paddingXS),
+                        Text(
+                          ImpactDisplay.profileSubtitle,
+                          style: AppTypography.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right,
+                    color: AppColors.primary.withOpacity(0.7),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: AppConstants.paddingM),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMetricTile(
-                  label: 'Money saved',
-                  value:
-                      '${AppConstants.currencySymbol} ${moneySaved.toStringAsFixed(0)}',
-                  icon: Icons.payments_outlined,
-                ),
-              ),
-              const SizedBox(width: AppConstants.paddingM),
-              Expanded(
-                child: _buildMetricTile(
-                  label: 'CO2e saved',
-                  value: '${co2Reduced.toStringAsFixed(0)} kg',
-                  icon: Icons.cloud_outlined,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppConstants.paddingM),
-          _buildHeroTile(mealsSaved),
-        ],
-      ),
-    );
-  }
-
-  /// Metric Tile Widget (Money saved, CO2e saved)
-  Widget _buildMetricTile({
-    required String label,
-    required String value,
-    required IconData icon,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.paddingM),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        border: Border.all(
-          color: AppColors.divider,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadow.withOpacity(0.05),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: AppColors.primary,
-            size: 32,
           ),
           const SizedBox(height: AppConstants.paddingS),
-          Text(
-            label,
-            style: AppTypography.bodyMedium.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-            ),
+          ImpactProfileMetricCard(
+            icon: Icons.cloud_outlined,
+            label: ImpactDisplay.profileCo2Label,
+            value: ImpactDisplay.formatCo2Kg(co2Reduced),
+            accentColor: AppColors.co2Reduced,
+            backgroundColor: AppColors.impactCo2Fill,
+            emphasized: true,
           ),
-          const SizedBox(height: AppConstants.paddingXS),
-          Text(
-            value,
-            style: AppTypography.h2.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Hero Tile Widget (Meals saved with image)
-  Widget _buildHeroTile(int mealsSaved) {
-    return Container(
-      width: double.infinity,
-      height: 160,
-      decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        child: Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.primaryDark,
-                      AppColors.primary,
-                    ],
-                  ),
-                ),
-                child: Stack(
-                  children: [
-                    Positioned(
-                      top: -20,
-                      left: -20,
-                      child: Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.textOnPrimary.withOpacity(0.1),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: -30,
-                      right: -30,
-                      child: Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.textOnPrimary.withOpacity(0.05),
-                        ),
-                      ),
-                    ),
-                    Center(
-                      child: Icon(
-                        Icons.shopping_bag,
-                        size: 72,
-                        color: AppColors.textOnPrimary.withOpacity(0.9),
-                      ),
-                    ),
-                  ],
-                ),
+          const SizedBox(height: gap),
+          if (isMerchant)
+            ImpactProfileMetricCard(
+              icon: Icons.restaurant_outlined,
+              label: ImpactDisplay.profileMealsLabel(isMerchant: isMerchant),
+              value: '$mealsSaved',
+              accentColor: AppColors.impactMealsAccent,
+              backgroundColor: AppColors.impactMealsFill,
+              alignWithPrimary: true,
+            )
+          else
+            ImpactProfileMetricRow(
+              left: ImpactProfileMetricCard(
+                icon: Icons.payments_outlined,
+                label: ImpactDisplay.profileMoneyLabel,
+                value: ImpactDisplay.formatMoneySummary(moneySaved),
+                accentColor: AppColors.moneySaved,
+                backgroundColor: AppColors.impactMoneyFill,
+              ),
+              right: ImpactProfileMetricCard(
+                icon: Icons.restaurant_outlined,
+                label: ImpactDisplay.profileMealsLabel(isMerchant: isMerchant),
+                value: '$mealsSaved',
+                accentColor: AppColors.impactMealsAccent,
+                backgroundColor: AppColors.impactMealsFill,
               ),
             ),
-            Expanded(
-              flex: 3,
-              child: Padding(
-                padding: const EdgeInsets.all(AppConstants.paddingL),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Meals\nsaved',
-                      style: AppTypography.h5.copyWith(
-                        color: AppColors.textOnPrimary,
-                        fontWeight: FontWeight.bold,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.paddingS),
-                    Text(
-                      '$mealsSaved',
-                      style: AppTypography.h1.copyWith(
-                        color: AppColors.textOnPrimary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 48,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

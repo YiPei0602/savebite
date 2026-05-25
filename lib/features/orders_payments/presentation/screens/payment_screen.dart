@@ -247,6 +247,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
+    PaymentIntent? successfulIntent;
+
     setState(() => _busy = true);
 
     try {
@@ -295,6 +297,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
         setState(() => _busy = false);
         return;
       }
+
+      successfulIntent = paymentIntent;
     } on StripeException catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -337,10 +341,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
 
-    await _completeOrderAfterPayment(context);
+    await _completeOrderAfterPayment(
+      context,
+      stripePaymentIntentId: successfulIntent?.id,
+    );
   }
 
-  Future<void> _completeOrderAfterPayment(BuildContext context) async {
+  Future<void> _completeOrderAfterPayment(
+    BuildContext context, {
+    String? stripePaymentIntentId,
+  }) async {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -371,6 +381,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         deliveryLatitude: args.deliveryLatitude,
         deliveryLongitude: args.deliveryLongitude,
         deliveryPlaceId: args.deliveryPlaceId,
+        stripePaymentIntentId: stripePaymentIntentId,
       );
 
       if (!context.mounted) return;

@@ -13,7 +13,28 @@ import 'package:savebite/features/marketplace_surplus/domain/models/merchant_mod
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
 import 'package:savebite/shared/utils/merchant_schedule_utils.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
+import 'package:savebite/features/merchant_management/presentation/widgets/food_hygiene_policy_sheet.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
+
+/// Copy for merchant-only food safety gate (new listings only; not persisted).
+class _FoodSafetyDeclarationCopy {
+  _FoodSafetyDeclarationCopy._();
+
+  static const title = 'Food Safety Confirmation';
+
+  static const intro =
+      'Before publishing this listing, confirm that:\n'
+      '\n'
+      '• The food is clean, safe, and suitable for consumption.\n'
+      '• The item has not expired.\n'
+      '• The information you provide is accurate.\n'
+      '• The food was handled hygienically.';
+
+  /// Single gate for new listings (not persisted).
+  static const checkboxPolicyCompliance =
+      'I confirm that this listing complies with the SaveBite '
+      'Food Hygiene & Safety Policy.';
+}
 
 /// Add Surplus Item Screen
 ///
@@ -45,6 +66,9 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
   double _minDiscount = 20.0;
   double _maxDiscount = 70.0;
   bool _isLoading = false;
+
+  /// Required once per **new** listing; not persisted.
+  bool _confirmHygienePolicy = false;
 
   /// Always derived from store profile (same instant as store closing for this session).
   DateTime get _effectiveClosingTime {
@@ -170,6 +194,19 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
         const SnackBar(content: Text('Please select at least 1 category')),
       );
       return;
+    }
+
+    if (!isEdit) {
+      if (!_confirmHygienePolicy) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Please confirm the Food Hygiene & Safety policy before publishing.',
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => _isLoading = true);
@@ -439,11 +476,19 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
                         const SizedBox(height: 12),
                       ],
 
+                      if (widget.initialItem == null) ...[
+                        _buildFoodSafetyDeclarationSection(),
+                        const SizedBox(height: 20),
+                      ],
+
                       SizedBox(
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: (_isLoading || !storeComplete)
+                          onPressed: (_isLoading ||
+                                  !storeComplete ||
+                                  (widget.initialItem == null &&
+                                      !_confirmHygienePolicy))
                               ? null
                               : _handleSubmit,
                           style: ElevatedButton.styleFrom(
@@ -480,6 +525,76 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
     );
   }
 
+  Widget _buildFoodSafetyDeclarationSection() {
+    // Same size & weight for intro + checkbox line; title uses [cardTitleStyle]. Link unchanged.
+    final cardBodyStyle = AppTypography.bodySmall.copyWith(
+      color: AppColors.textSecondary,
+      height: 1.45,
+      fontWeight: FontWeight.w400,
+    );
+    final cardTitleStyle = AppTypography.bodyMedium.copyWith(
+      fontWeight: FontWeight.w800,
+      color: AppColors.textPrimary,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _FoodSafetyDeclarationCopy.title,
+            style: cardTitleStyle,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _FoodSafetyDeclarationCopy.intro,
+            style: cardBodyStyle,
+          ),
+          const SizedBox(height: 12),
+          CheckboxListTile(
+            value: _confirmHygienePolicy,
+            onChanged: _isLoading
+                ? null
+                : (v) =>
+                    setState(() => _confirmHygienePolicy = v ?? false),
+            controlAffinity: ListTileControlAffinity.leading,
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              _FoodSafetyDeclarationCopy.checkboxPolicyCompliance,
+              style: cardBodyStyle,
+            ),
+            activeColor: AppColors.primary,
+          ),
+          Align(
+            alignment: Alignment.center,
+            child: TextButton(
+              onPressed:
+                  _isLoading ? null : () => showFoodHygienePolicySheet(context),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              ),
+              child: Text(
+                'View full policy',
+                style: AppTypography.bodySmall.copyWith(
+                  fontWeight: FontWeight.w700,
+                  decoration: TextDecoration.underline,
+                  decorationColor: AppColors.primary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildImageUploadSection() {
     final existingUrl = _existingImageUrl;
     final hasExistingImage =
@@ -503,7 +618,7 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.add_photo_alternate_outlined,
                     size: 48,
                     color: AppColors.textSecondary,
@@ -709,7 +824,7 @@ class _AddSurplusScreenState extends State<AddSurplusScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '${_minDiscount.round()}% – ${_maxDiscount.round()}%  (now ${_computedDiscountPercent}%)',
+                '${_minDiscount.round()}% – ${_maxDiscount.round()}%  (now $_computedDiscountPercent%)',
                 style: AppTypography.bodyMedium.copyWith(
                   color: AppColors.accent,
                   fontWeight: FontWeight.bold,

@@ -2,11 +2,76 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:savebite/features/orders_payments/domain/models/cart_item_model.dart';
 import 'package:savebite/shared/utils/firestore_timestamp_utils.dart';
 
+/// Who initiated cancellation for a cancelled order.
+enum CancellationReason {
+  merchantRejected,
+  buyerRequested,
+}
+
+extension CancellationReasonWire on CancellationReason {
+  /// Firestore / wire value (camelCase).
+  String get wireValue =>
+      switch (this) {
+        CancellationReason.merchantRejected => 'merchantRejected',
+        CancellationReason.buyerRequested => 'buyerRequested',
+      };
+
+  static CancellationReason? fromFirestore(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    switch (raw.trim()) {
+      case 'merchantRejected':
+        return CancellationReason.merchantRejected;
+      case 'buyerRequested':
+        return CancellationReason.buyerRequested;
+      default:
+        return null;
+    }
+  }
+}
+
+/// Stripe refund progress (maintained by Cloud Functions on cancellations).
+enum PaymentRefundStatus {
+  none,
+  pending,
+  succeeded,
+  failed,
+  notApplicable,
+}
+
+extension PaymentRefundStatusWire on PaymentRefundStatus {
+  String get wireValue => switch (this) {
+        PaymentRefundStatus.none => 'none',
+        PaymentRefundStatus.pending => 'pending',
+        PaymentRefundStatus.succeeded => 'succeeded',
+        PaymentRefundStatus.failed => 'failed',
+        PaymentRefundStatus.notApplicable => 'notApplicable',
+      };
+
+  static PaymentRefundStatus fromFirestore(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return PaymentRefundStatus.none;
+    switch (raw.trim()) {
+      case 'pending':
+        return PaymentRefundStatus.pending;
+      case 'succeeded':
+        return PaymentRefundStatus.succeeded;
+      case 'failed':
+        return PaymentRefundStatus.failed;
+      case 'notApplicable':
+        return PaymentRefundStatus.notApplicable;
+      default:
+        return PaymentRefundStatus.none;
+    }
+  }
+}
+
 /// Order Model
 ///
 /// Represents a customer order.
 /// - **Payment lifecycle:** [paymentStatus] (`pending` | `paid` | `failed`).
 /// - **Fulfillment lifecycle:** [orderStatus] (`pending` → … → `completed` | `cancelled`).
+/// - **Cancellation:** [cancellationReason] when [orderStatus] is [OrderStatus.cancelled]
+///   (merchant reject vs buyer cancel — same terminal status).
+/// - **Refunds:** [paymentRefundStatus] is updated server-side ([Cloud Functions]) when cancelling paid card orders.
 class OrderModel {
   final String id;
   final String userId;
@@ -45,6 +110,14 @@ class OrderModel {
   final DateTime createdAt;
   final DateTime? updatedAt;
   final DateTime? completedAt;
+  /// Stripe PaymentIntent ID for card-paid orders (`pi_…`), used for refunds.
+  final String? stripePaymentIntentId;
+  /// Set when cancelling from [OrderStatus.pending] so Cloud Functions can safely restore surplus stock once.
+  final bool stockRestoredFromCancellation;
+  /// Who initiated cancellation when [OrderStatus.cancelled].
+  final CancellationReason? cancellationReason;
+  /// Refund lifecycle for card payments (server-written).
+  final PaymentRefundStatus paymentRefundStatus;
 
   OrderModel({
     required this.id,
@@ -80,7 +153,18 @@ class OrderModel {
     required this.createdAt,
     this.updatedAt,
     this.completedAt,
+    this.stripePaymentIntentId,
+    this.stockRestoredFromCancellation = false,
+    this.cancellationReason,
+    this.paymentRefundStatus = PaymentRefundStatus.none,
   });
+
+  static String? _stripePiId(dynamic v) {
+    if (v is! String) return null;
+    final t = v.trim();
+    if (t.isEmpty) return null;
+    return t;
+  }
 
   factory OrderModel.fromJson(Map<String, dynamic> json) {
     final orderStatusRaw = json['orderStatus'] as String? ??
@@ -142,6 +226,13 @@ class OrderModel {
       createdAt: dateTimeFromFirestoreWithDefault(json['createdAt']),
       updatedAt: dateTimeFromFirestore(json['updatedAt']),
       completedAt: dateTimeFromFirestore(json['completedAt']),
+      stripePaymentIntentId: _stripePiId(json['stripePaymentIntentId']),
+      stockRestoredFromCancellation:
+          (json['stockRestoredFromCancellation'] as bool?) ?? false,
+      cancellationReason: CancellationReasonWire.fromFirestore(
+          json['cancellationReason']?.toString()),
+      paymentRefundStatus: PaymentRefundStatusWire.fromFirestore(
+          json['paymentRefundStatus']?.toString()),
     );
   }
 
@@ -180,6 +271,12 @@ class OrderModel {
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': timestampFromDateTime(updatedAt),
       'completedAt': timestampFromDateTime(completedAt),
+      if (stripePaymentIntentId != null)
+        'stripePaymentIntentId': stripePaymentIntentId,
+      'stockRestoredFromCancellation': stockRestoredFromCancellation,
+      if (cancellationReason != null)
+        'cancellationReason': cancellationReason!.wireValue,
+      'paymentRefundStatus': paymentRefundStatus.wireValue,
     };
   }
 
@@ -217,6 +314,10 @@ class OrderModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? completedAt,
+    String? stripePaymentIntentId,
+    bool? stockRestoredFromCancellation,
+    CancellationReason? cancellationReason,
+    PaymentRefundStatus? paymentRefundStatus,
   }) {
     return OrderModel(
       id: id ?? this.id,
@@ -252,18 +353,31 @@ class OrderModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,
+      stripePaymentIntentId: stripePaymentIntentId ?? this.stripePaymentIntentId,
+      stockRestoredFromCancellation: stockRestoredFromCancellation ??
+          this.stockRestoredFromCancellation,
+      cancellationReason: cancellationReason ?? this.cancellationReason,
+      paymentRefundStatus: paymentRefundStatus ?? this.paymentRefundStatus,
     );
   }
 
-  int get totalItems => items.fold(0, (sum, item) => sum + item.quantity);
+  int get totalItems =>
+      items.fold(0, (partial, item) => partial + item.quantity);
 }
 
-/// Fulfillment / order lifecycle (merchant workflow).
+/// Fulfillment lifecycle (kitchen + delivery orchestration).
+///
+/// Pickup: `pending` → … → `ready` → `completed`
+/// Delivery: adds `findingDriver`, `pickedUpByDriver`, and `onTheWay` between accept and delivered.
 enum OrderStatus {
   pending,
   confirmed,
+  /// Delivery only: assigning / searching for courier after accept.
+  findingDriver,
   preparing,
   ready,
+  /// Delivery only: driver collected the order at the store.
+  pickedUpByDriver,
   onTheWay,
   completed,
   cancelled,

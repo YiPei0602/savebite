@@ -29,11 +29,24 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
   final Set<String> _seenOrderIds = <String>{};
   final Map<String, OrderStatus> _lastStatusByOrderId = <String, OrderStatus>{};
 
+  bool _isMerchantRejectedOrder(OrderModel o) =>
+      o.orderStatus == OrderStatus.cancelled &&
+      o.cancellationReason == CancellationReason.merchantRejected;
+
+  /// Completed tab: fulfilled + any cancelled that is **not** a merchant-at-pending reject.
+  bool _inMerchantCompletedBucket(OrderModel o) {
+    if (o.orderStatus == OrderStatus.completed) return true;
+    if (o.orderStatus != OrderStatus.cancelled) return false;
+    return !_isMerchantRejectedOrder(o);
+  }
+
   static const _activeStatuses = <OrderStatus>[
     OrderStatus.pending,
     OrderStatus.confirmed,
+    OrderStatus.findingDriver,
     OrderStatus.preparing,
     OrderStatus.ready,
+    OrderStatus.pickedUpByDriver,
     OrderStatus.onTheWay,
   ];
 
@@ -88,10 +101,14 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
         return 'Pending';
       case OrderStatus.confirmed:
         return 'Confirmed';
+      case OrderStatus.findingDriver:
+        return 'Finding driver';
       case OrderStatus.preparing:
         return 'Preparing';
       case OrderStatus.ready:
         return 'Ready';
+      case OrderStatus.pickedUpByDriver:
+        return 'Driver picked up';
       case OrderStatus.completed:
         return 'Completed';
       case OrderStatus.cancelled:
@@ -131,14 +148,20 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
       if (!_seenOrderIds.contains(o.id)) {
         _seenOrderIds.add(o.id);
         _lastStatusByOrderId[o.id] = o.orderStatus;
-        _scheduleMerchantSnackBar('New order received');
-        _scheduleNewOrderDialog(o);
+        // Only ping merchant for paid rescues awaiting acceptance (not unpaid/draft paths).
+        if (o.orderStatus == OrderStatus.pending &&
+            o.paymentStatus == PaymentStatus.paid) {
+          _scheduleMerchantSnackBar('New order received');
+          _scheduleNewOrderDialog(o);
+        }
       } else {
         final prev = _lastStatusByOrderId[o.id];
         if (prev != null &&
             prev != OrderStatus.cancelled &&
             o.orderStatus == OrderStatus.cancelled) {
-          _scheduleMerchantSnackBar('Order cancelled');
+          final msg =
+              _isMerchantRejectedOrder(o) ? 'Order rejected' : 'Order cancelled';
+          _scheduleMerchantSnackBar(msg);
         }
         _lastStatusByOrderId[o.id] = o.orderStatus;
       }
@@ -196,10 +219,14 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
         return const Color(0xFF6B7280); // grey
       case OrderStatus.confirmed:
         return const Color(0xFF2563EB); // blue
+      case OrderStatus.findingDriver:
+        return const Color(0xFF7C3AED); // violet
       case OrderStatus.preparing:
         return const Color(0xFFF97316); // orange
       case OrderStatus.ready:
-        return const Color(0xFF7C3AED); // purple
+        return const Color(0xFF7C3AED); // purple / ready
+      case OrderStatus.pickedUpByDriver:
+        return const Color(0xFF0891B2); // cyan
       case OrderStatus.completed:
         return const Color(0xFF16A34A); // green
       case OrderStatus.cancelled:
@@ -217,7 +244,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
         final merchantId = user?.merchantId ?? user?.id;
 
         return DefaultTabController(
-          length: 2,
+          length: 3,
           child: Scaffold(
             backgroundColor: Colors.white,
             appBar: AppBar(
@@ -236,6 +263,7 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
                 tabs: const [
                   Tab(text: 'Active'),
                   Tab(text: 'Completed'),
+                  Tab(text: 'Rejected'),
                 ],
               ),
             ),
@@ -267,9 +295,10 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
                           .where((o) => _activeStatuses.contains(o.orderStatus))
                           .toList(growable: false);
                       final completed = orders
-                          .where((o) =>
-                              o.orderStatus == OrderStatus.completed ||
-                              o.orderStatus == OrderStatus.cancelled)
+                          .where(_inMerchantCompletedBucket)
+                          .toList(growable: false);
+                      final rejected = orders
+                          .where(_isMerchantRejectedOrder)
                           .toList(growable: false);
 
                       return TabBarView(
@@ -285,7 +314,17 @@ class _MerchantOrdersScreenState extends State<MerchantOrdersScreen> {
                           _OrdersList(
                             orders: completed,
                             emptyTitle: 'No completed orders',
-                            emptySubtitle: 'Completed/cancelled orders will appear here.',
+                            emptySubtitle:
+                                'Fulfilled orders and buyer cancellations appear here.',
+                            customerLabel: _loadCustomerLabel,
+                            formatStatus: _formatStatus,
+                            statusColor: _statusColor,
+                          ),
+                          _OrdersList(
+                            orders: rejected,
+                            emptyTitle: 'No rejected orders',
+                            emptySubtitle:
+                                'Orders you decline while still pending appear here.',
                             customerLabel: _loadCustomerLabel,
                             formatStatus: _formatStatus,
                             statusColor: _statusColor,
@@ -457,6 +496,50 @@ class _OrderCardState extends State<_OrderCard> {
     }
   }
 
+  Future<void> _confirmRejectPending() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Reject this order?', style: AppTypography.h4),
+        content: Text(
+          'The customer will see this order as cancelled. You won\'t need to prepare or hand it off.',
+          style: AppTypography.bodyMedium,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep order'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || go != true) return;
+
+    if (_busy) return;
+    setState(() => _busy = true);
+    final ok = await context.read<OrderProvider>().rejectPendingOrderAsMerchant(
+          widget.order.id,
+        );
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Order rejected'
+              : context.read<OrderProvider>().errorMessage ??
+                  'Unable to reject order',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final order = widget.order;
@@ -477,21 +560,34 @@ class _OrderCardState extends State<_OrderCard> {
         primaryTarget = OrderStatus.confirmed;
         break;
       case OrderStatus.confirmed:
-        primaryLabel = 'Start Preparing';
+        if (order.fulfillmentType == FulfillmentType.pickup) {
+          primaryLabel = 'Start preparing';
+          primaryTarget = OrderStatus.preparing;
+        } else {
+          primaryLabel = 'Finding driver';
+          primaryTarget = OrderStatus.findingDriver;
+        }
+        break;
+      case OrderStatus.findingDriver:
+        primaryLabel = 'Start preparing';
         primaryTarget = OrderStatus.preparing;
         break;
       case OrderStatus.preparing:
-        primaryLabel = 'Mark as Ready';
+        primaryLabel = 'Mark as ready';
         primaryTarget = OrderStatus.ready;
         break;
       case OrderStatus.ready:
         if (order.fulfillmentType == FulfillmentType.pickup) {
-          primaryLabel = 'Complete Order';
+          primaryLabel = 'Complete order';
           primaryTarget = OrderStatus.completed;
         } else {
-          primaryLabel = 'Out for delivery';
-          primaryTarget = OrderStatus.onTheWay;
+          primaryLabel = 'Hand off to driver';
+          primaryTarget = OrderStatus.pickedUpByDriver;
         }
+        break;
+      case OrderStatus.pickedUpByDriver:
+        primaryLabel = 'Out for delivery';
+        primaryTarget = OrderStatus.onTheWay;
         break;
       case OrderStatus.onTheWay:
         primaryLabel = 'Mark delivered';
@@ -787,7 +883,7 @@ class _OrderCardState extends State<_OrderCard> {
                   if (status == OrderStatus.pending) ...[
                     const SizedBox(width: 10),
                     OutlinedButton(
-                      onPressed: _busy ? null : () => _setStatus(OrderStatus.cancelled),
+                      onPressed: _busy ? null : _confirmRejectPending,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.error,
                         side: const BorderSide(color: AppColors.error),
@@ -799,11 +895,34 @@ class _OrderCardState extends State<_OrderCard> {
                           borderRadius: BorderRadius.circular(AppConstants.radiusM),
                         ),
                       ),
-                      child: const Text('Cancel'),
+                      child: const Text('Reject'),
                     ),
                   ],
                 ],
               ),
+              if (order.fulfillmentType == FulfillmentType.delivery &&
+                  status == OrderStatus.ready) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed:
+                        _busy ? null : () => _setStatus(OrderStatus.onTheWay),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: BorderSide(color: AppColors.divider.withOpacity(0.8)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      ),
+                    ),
+                    child: const Text('Out for delivery (skip handoff step)'),
+                  ),
+                ),
+              ],
             ],
           ],
         ),

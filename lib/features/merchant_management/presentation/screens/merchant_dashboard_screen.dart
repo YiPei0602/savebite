@@ -191,7 +191,7 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
         final completedTodayCount = completedToday.length;
         final todayRevenue = completedToday.fold<double>(
           0.0,
-          (sum, o) => sum + o.totalPrice,
+          (sum, o) => sum + o.subtotal,
         );
 
         final merchantList =

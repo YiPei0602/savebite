@@ -181,7 +181,14 @@ class AppRouter {
         GoRoute(
           path: '/home',
           name: 'home',
-          builder: (context, state) => const HomeScreen(),
+          builder: (context, state) {
+            final raw = state.uri.queryParameters['tab'];
+            final parsed = int.tryParse(raw ?? '');
+            final index = parsed == null
+                ? 0
+                : parsed.clamp(0, HomeScreen.tabCount - 1);
+            return HomeScreen(initialTabIndex: index);
+          },
         ),
         GoRoute(
           path: '/impact',

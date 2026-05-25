@@ -94,6 +94,14 @@ class AppColors {
   /// Money Saved Indicator
   static const Color moneySaved = Color(0xFFFF8C42); // Accent orange
 
+  /// Full-fill backgrounds for Profile + Impact metric cards (text colors unchanged).
+  static const Color impactCo2Fill = Color(0xFFB8EDDD); // Light Caribbean green
+  static const Color impactMoneyFill = Color(0xFFFFD4B8); // Light orange
+  static const Color impactMealsFill = Color(0xFFB8D4F0); // Light blue
+
+  /// Accent for meals on light-blue fill (icon badge).
+  static const Color impactMealsAccent = Color(0xFF1976D2);
+
   // ============================================================================
   // DIVIDERS & BORDERS
   // ============================================================================

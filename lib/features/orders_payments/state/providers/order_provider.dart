@@ -42,6 +42,7 @@ class OrderProvider with ChangeNotifier {
     double? deliveryLatitude,
     double? deliveryLongitude,
     String? deliveryPlaceId,
+    String? stripePaymentIntentId,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -66,12 +67,15 @@ class OrderProvider with ChangeNotifier {
         deliveryLatitude: deliveryLatitude,
         deliveryLongitude: deliveryLongitude,
         deliveryPlaceId: deliveryPlaceId,
+        stripePaymentIntentId: stripePaymentIntentId,
       );
 
       _currentOrder = order;
       if (paymentStatus == PaymentStatus.paid) {
-        _orders.insert(0, order);
-        _activeOrders.insert(0, order);
+        // [loadMerchantOrders]/[loadActiveOrders] may assign fixed-length lists
+        // from `.toList(growable: false)` — never call [insert] on those.
+        _orders = [order, ...List<OrderModel>.from(_orders)];
+        _activeOrders = [order, ...List<OrderModel>.from(_activeOrders)];
       }
       _isLoading = false;
       notifyListeners();
@@ -166,25 +170,7 @@ class OrderProvider with ChangeNotifier {
     try {
       final updatedOrder =
           await _orderService.updateOrderStatus(orderId, newStatus);
-
-      final index = _orders.indexWhere((o) => o.id == orderId);
-      if (index >= 0) {
-        _orders[index] = updatedOrder;
-      }
-
-      final activeIndex = _activeOrders.indexWhere((o) => o.id == orderId);
-      if (activeIndex >= 0) {
-        if (newStatus == OrderStatus.completed ||
-            newStatus == OrderStatus.cancelled) {
-          _activeOrders.removeAt(activeIndex);
-        } else {
-          _activeOrders[activeIndex] = updatedOrder;
-        }
-      }
-
-      if (_currentOrder?.id == orderId) {
-        _currentOrder = updatedOrder;
-      }
+      _patchOrderCaches(updatedOrder);
 
       _isLoading = false;
       notifyListeners();
@@ -197,9 +183,69 @@ class OrderProvider with ChangeNotifier {
     }
   }
 
-  /// Cancel order
+  /// Cancel order (buyer), sets [CancellationReason.buyerRequested] server-side merge.
   Future<bool> cancelOrder(String orderId) async {
-    return updateOrderStatus(orderId, OrderStatus.cancelled);
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updatedOrder = await _orderService.cancelOrderAsBuyer(orderId);
+      _patchOrderCaches(updatedOrder);
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Merchant rejects a still-pending paid order ([CancellationReason.merchantRejected]).
+  Future<bool> rejectPendingOrderAsMerchant(String orderId) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updatedOrder =
+          await _orderService.rejectPendingOrderAsMerchant(orderId);
+      _patchOrderCaches(updatedOrder);
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void _patchOrderCaches(OrderModel updatedOrder) {
+    final orderId = updatedOrder.id;
+    final idx = _orders.indexWhere((o) => o.id == orderId);
+    if (idx >= 0) {
+      _orders[idx] = updatedOrder;
+    }
+
+    final activeIndex = _activeOrders.indexWhere((o) => o.id == orderId);
+    if (activeIndex >= 0) {
+      if (updatedOrder.orderStatus == OrderStatus.completed ||
+          updatedOrder.orderStatus == OrderStatus.cancelled) {
+        _activeOrders.removeAt(activeIndex);
+      } else {
+        _activeOrders[activeIndex] = updatedOrder;
+      }
+    }
+
+    if (_currentOrder?.id == orderId) {
+      _currentOrder = updatedOrder;
+    }
   }
 
   Future<OrderModel?> updateOrderRiderDetails({
