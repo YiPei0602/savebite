@@ -24,6 +24,7 @@ class PaymentCheckoutArgs {
     this.deliveryLatitude,
     this.deliveryLongitude,
     this.deliveryPlaceId,
+    this.customerName,
   });
 
   final String userId;
@@ -48,4 +49,6 @@ class PaymentCheckoutArgs {
   final double? deliveryLatitude;
   final double? deliveryLongitude;
   final String? deliveryPlaceId;
+  /// Buyer display name (`firstName` + `lastName`) captured at checkout.
+  final String? customerName;
 }

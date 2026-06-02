@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/core/constants/app_constants.dart';
@@ -13,11 +11,10 @@ import 'package:savebite/features/orders_payments/domain/models/order_model.dart
 import 'package:savebite/features/orders/buyer_order_progress.dart';
 import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
 import 'package:savebite/shared/widgets/app_back_button.dart';
+import 'package:savebite/shared/widgets/order/order_details_sheet.dart';
+import 'package:savebite/shared/widgets/order/order_summary_card.dart';
 
-/// Order History Screen
-///
-/// Displays user's past orders from OrderProvider with status filters.
-/// Used in the 'Orders' tab of main navigation.
+/// Order History Screen — consumer orders list + shared detail sheet.
 class OrderHistoryScreen extends StatefulWidget {
   const OrderHistoryScreen({super.key});
 
@@ -80,264 +77,16 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     }
   }
 
-  String _formatOrderStatus(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.completed:
-        return 'Completed';
-      case OrderStatus.cancelled:
-        return 'Cancelled';
-      case OrderStatus.pending:
-        return 'Pending';
-      case OrderStatus.confirmed:
-        return 'Confirmed';
-      case OrderStatus.findingDriver:
-        return 'Finding driver';
-      case OrderStatus.preparing:
-        return 'Preparing';
-      case OrderStatus.ready:
-        return 'Ready';
-      case OrderStatus.pickedUpByDriver:
-        return 'Driver picked up';
-      case OrderStatus.onTheWay:
-        return 'On the way';
-    }
-  }
-
-  void _viewOrderDetails(
+  void _openOrderDetails(
     BuildContext context,
     OrderModel order,
     MerchantProvider merchantProvider,
   ) {
-    final statusStr = _formatOrderStatus(order.orderStatus);
-    final dateStr = DateFormat('d MMM yyyy').format(order.createdAt);
-    final timeStr = DateFormat('h:mm a').format(order.createdAt);
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(AppConstants.radiusL),
-        ),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.5,
-          maxChildSize: 0.9,
-          expand: false,
-          builder: (context, scrollController) {
-            final cancelNote = order.orderStatus == OrderStatus.cancelled
-                ? BuyerOrderProgress.cancellationHistoryDetailNote(order)
-                : null;
-
-            return SingleChildScrollView(
-              controller: scrollController,
-              padding: const EdgeInsets.all(AppConstants.paddingL),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.divider,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.paddingL),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Order Details', style: AppTypography.h3),
-                      _buildStatusBadge(statusStr),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.paddingL),
-                  _buildDetailRow('Order ID', '#${order.id}'),
-                  _buildDetailRow(
-                    'Restaurant',
-                    _shopDisplayNameForOrder(order, merchantProvider),
-                  ),
-                  _buildDetailRow('Date', '$dateStr, $timeStr'),
-                  _buildDetailRow(
-                    'Type',
-                    order.fulfillmentType == FulfillmentType.pickup
-                        ? 'Self-Pickup'
-                        : 'Delivery',
-                  ),
-                  if (cancelNote != null && cancelNote.isNotEmpty) ...[
-                    const SizedBox(height: AppConstants.paddingM),
-                    Text(
-                      cancelNote,
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                  if (order.fulfillmentType == FulfillmentType.delivery) ...[
-                    const SizedBox(height: AppConstants.paddingM),
-                    Text('Rider', style: AppTypography.h5),
-                    const SizedBox(height: AppConstants.paddingS),
-                    if ((order.riderName ?? '').isEmpty &&
-                        (order.riderPhone ?? '').isEmpty &&
-                        (order.riderVehicleInfo ?? '').isEmpty &&
-                        (order.riderNote ?? '').isEmpty)
-                      Text(
-                        'The store has not added rider details yet.',
-                        style: AppTypography.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      )
-                    else ...[
-                      if ((order.riderName ?? '').isNotEmpty)
-                        _buildDetailRow('Name', order.riderName!),
-                      if ((order.riderPhone ?? '').isNotEmpty)
-                        _buildDetailRow('Phone', order.riderPhone!),
-                      if ((order.riderVehicleInfo ?? '').isNotEmpty)
-                        _buildDetailRow('Vehicle', order.riderVehicleInfo!),
-                      if ((order.riderNote ?? '').isNotEmpty)
-                        _buildDetailRow('Note', order.riderNote!),
-                    ],
-                  ],
-                  const SizedBox(height: AppConstants.paddingL),
-                  Text('Items Ordered', style: AppTypography.h5),
-                  const SizedBox(height: AppConstants.paddingM),
-                  ...(order.items.map((cartItem) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppConstants.paddingS,
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: AppConstants.paddingM),
-                          Expanded(
-                            child: Text(
-                              '${cartItem.foodItem.name} x${cartItem.quantity}',
-                              style: AppTypography.bodyMedium,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  })),
-                  const SizedBox(height: AppConstants.paddingL),
-                  Container(
-                    padding: const EdgeInsets.all(AppConstants.paddingM),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceVariant,
-                      borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Total Paid', style: AppTypography.h5),
-                        Text(
-                          '${AppConstants.currencySymbol}${order.totalPrice.toStringAsFixed(2)}',
-                          style: AppTypography.h4.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.paddingL),
-                  if (order.orderStatus != OrderStatus.completed &&
-                      order.orderStatus != OrderStatus.cancelled)
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          context.push('/order-tracking/${order.id}');
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                        ),
-                        child: Text(
-                          'Track Order',
-                          style: AppTypography.buttonMedium,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppConstants.paddingS),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: AppTypography.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-          Text(
-            value,
-            style: AppTypography.bodyMedium.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusBadge(String status) {
-    Color backgroundColor;
-    Color textColor;
-
-    switch (status) {
-      case 'Completed':
-        backgroundColor = AppColors.success.withOpacity(0.1);
-        textColor = AppColors.success;
-        break;
-      case 'Cancelled':
-        backgroundColor = AppColors.error.withOpacity(0.1);
-        textColor = AppColors.error;
-        break;
-      default:
-        backgroundColor = AppColors.warning.withOpacity(0.1);
-        textColor = AppColors.warning;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppConstants.paddingS,
-        vertical: AppConstants.paddingXS,
-      ),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(AppConstants.radiusS),
-      ),
-      child: Text(
-        status,
-        style: AppTypography.caption.copyWith(
-          color: textColor,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    showOrderDetailsSheet(
+      context,
+      order: order,
+      audience: OrderDetailsAudience.consumer,
+      storeName: _shopDisplayNameForOrder(order, merchantProvider),
     );
   }
 
@@ -385,10 +134,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       itemCount: orders.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
-        return _buildOrderCard(
-          context,
-          orders[index],
-          merchantProvider,
+        final order = orders[index];
+        final storeName = _shopDisplayNameForOrder(order, merchantProvider);
+        return OrderSummaryCard(
+          order: order,
+          audience: OrderSummaryAudience.consumer,
+          storeName: storeName,
+          cancelSubtitle: BuyerOrderProgress.cancellationHistorySubtitle(order),
+          onTap: () => _openOrderDetails(context, order, merchantProvider),
         );
       },
     );
@@ -396,7 +149,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
   PreferredSizeWidget _buildOrdersAppBar() {
     return AppBar(
-      title: Text('Past Orders', style: AppTypography.h3),
+      title: Text('Orders', style: AppTypography.h3),
       backgroundColor: Colors.white,
       elevation: 0,
       centerTitle: true,
@@ -442,150 +195,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildOrderCard(
-    BuildContext context,
-    OrderModel order,
-    MerchantProvider merchantProvider,
-  ) {
-    final statusStr = _formatOrderStatus(order.orderStatus);
-    final cancelSubtitle =
-        BuyerOrderProgress.cancellationHistorySubtitle(order);
-    final dateStr = DateFormat('d MMM yyyy').format(order.createdAt);
-    final timeStr = DateFormat('h:mm a').format(order.createdAt);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        border: Border.all(color: AppColors.border.withOpacity(0.6)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _viewOrderDetails(context, order, merchantProvider),
-          borderRadius: BorderRadius.circular(AppConstants.radiusM),
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.paddingM),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _shopDisplayNameForOrder(order, merchantProvider),
-                        style: AppTypography.h5,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: AppConstants.paddingS),
-                    _buildStatusBadge(statusStr),
-                  ],
-                ),
-                if (cancelSubtitle != null) ...[
-                  const SizedBox(height: AppConstants.paddingXS),
-                  Text(
-                    cancelSubtitle,
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: AppConstants.paddingS),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.calendar_today,
-                      size: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: AppConstants.paddingXS),
-                    Text(
-                      '$dateStr, $timeStr',
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppConstants.paddingXS),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.shopping_bag_outlined,
-                      size: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: AppConstants.paddingXS),
-                    Text(
-                      '${order.totalItems} ${order.totalItems == 1 ? 'item' : 'items'}',
-                      style: AppTypography.bodySmall.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppConstants.paddingM),
-                const Divider(),
-                const SizedBox(height: AppConstants.paddingM),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Total',
-                          style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: AppConstants.paddingXS),
-                        Text(
-                          '${AppConstants.currencySymbol}${order.totalPrice.toStringAsFixed(2)}',
-                          style: AppTypography.h5.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (order.orderStatus != OrderStatus.completed &&
-                        order.orderStatus != OrderStatus.cancelled)
-                      OutlinedButton(
-                        onPressed: () => _viewOrderDetails(
-                          context,
-                          order,
-                          merchantProvider,
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textSecondary,
-                          side: const BorderSide(color: AppColors.border),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppConstants.paddingM,
-                            vertical: AppConstants.paddingS,
-                          ),
-                        ),
-                        child: Text(
-                          'View Details',
-                          style: AppTypography.buttonSmall.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

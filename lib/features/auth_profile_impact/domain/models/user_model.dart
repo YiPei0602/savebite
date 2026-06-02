@@ -36,7 +36,13 @@ class UserModel {
   });
 
   /// Get full name (firstName + lastName)
-  String get name => '$firstName $lastName';
+  String get name {
+    final parts = <String>[
+      if (firstName.trim().isNotEmpty) firstName.trim(),
+      if (lastName.trim().isNotEmpty) lastName.trim(),
+    ];
+    return parts.join(' ');
+  }
 
   /// Create UserModel from Firestore document
   ///
@@ -72,9 +78,9 @@ class UserModel {
     // Handle name field - support both old (name) and new (firstName/lastName) formats
     String firstName;
     String lastName;
-    if (json['firstName'] != null && json['lastName'] != null) {
-      firstName = json['firstName'] as String;
-      lastName = json['lastName'] as String;
+    if (json['firstName'] != null || json['lastName'] != null) {
+      firstName = (json['firstName'] as String?)?.trim() ?? '';
+      lastName = (json['lastName'] as String?)?.trim() ?? '';
     } else if (json['name'] != null) {
       // Legacy support: split name into first and last
       final nameParts = (json['name'] as String).trim().split(' ');
@@ -105,9 +111,9 @@ class UserModel {
     // Handle name field - support both old (name) and new (firstName/lastName) formats
     String firstName;
     String lastName;
-    if (json['firstName'] != null && json['lastName'] != null) {
-      firstName = json['firstName'] as String;
-      lastName = json['lastName'] as String;
+    if (json['firstName'] != null || json['lastName'] != null) {
+      firstName = (json['firstName'] as String?)?.trim() ?? '';
+      lastName = (json['lastName'] as String?)?.trim() ?? '';
     } else if (json['name'] != null) {
       final nameParts = (json['name'] as String).trim().split(' ');
       firstName = nameParts.isNotEmpty ? nameParts.first : '';

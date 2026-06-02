@@ -77,6 +77,8 @@ class OrderModel {
   final String userId;
   final String merchantId;
   final String merchantName;
+  /// Buyer display name snapshot at checkout (for merchant order views).
+  final String? customerName;
   final List<CartItemModel> items;
   final double subtotal;
   final double serviceFee;
@@ -124,6 +126,7 @@ class OrderModel {
     required this.userId,
     required this.merchantId,
     required this.merchantName,
+    this.customerName,
     required this.items,
     required this.subtotal,
     required this.serviceFee,
@@ -175,6 +178,9 @@ class OrderModel {
       userId: json['userId'] as String,
       merchantId: json['merchantId'] as String,
       merchantName: json['merchantName'] as String,
+      customerName: (json['customerName'] as String?)?.trim().isNotEmpty == true
+          ? (json['customerName'] as String).trim()
+          : null,
       items: (json['items'] as List<dynamic>)
           .map((item) => CartItemModel.fromJson(item as Map<String, dynamic>))
           .toList(),
@@ -242,6 +248,8 @@ class OrderModel {
       'userId': userId,
       'merchantId': merchantId,
       'merchantName': merchantName,
+      if (customerName != null && customerName!.trim().isNotEmpty)
+        'customerName': customerName!.trim(),
       'items': items.map((item) => item.toJson()).toList(),
       'subtotal': subtotal,
       'serviceFee': serviceFee,
@@ -285,6 +293,7 @@ class OrderModel {
     String? userId,
     String? merchantId,
     String? merchantName,
+    String? customerName,
     List<CartItemModel>? items,
     double? subtotal,
     double? serviceFee,
@@ -324,6 +333,7 @@ class OrderModel {
       userId: userId ?? this.userId,
       merchantId: merchantId ?? this.merchantId,
       merchantName: merchantName ?? this.merchantName,
+      customerName: customerName ?? this.customerName,
       items: items ?? this.items,
       subtotal: subtotal ?? this.subtotal,
       serviceFee: serviceFee ?? this.serviceFee,
@@ -363,6 +373,13 @@ class OrderModel {
 
   int get totalItems =>
       items.fold(0, (partial, item) => partial + item.quantity);
+
+  /// Name shown on merchant order screens (never the Firebase UID).
+  String get merchantCustomerLabel {
+    final name = customerName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    return 'Customer';
+  }
 }
 
 /// Fulfillment lifecycle (kitchen + delivery orchestration).

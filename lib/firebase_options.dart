@@ -60,11 +60,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAY-2Q3ffhtnzIrE27guC31yaLvlav8Nm0',
-    appId: '1:261732256114:ios:76a8c6b4a2aaa9c8e375eb',
+    appId: '1:261732256114:ios:f29589d82fb28ae8e375eb',
     messagingSenderId: '261732256114',
     projectId: 'savebite-1fd01',
     storageBucket: 'savebite-1fd01.firebasestorage.app',
-    iosBundleId: 'com.example.savebite',
+    iosBundleId: 'com.tanyipei.savebite',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(

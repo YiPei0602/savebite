@@ -57,7 +57,7 @@ class AppTheme {
       // ========================================================================
       // CARD
       // ========================================================================
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 2,
         shadowColor: AppColors.shadow,
@@ -207,7 +207,7 @@ class AppTheme {
       // ========================================================================
       // DIALOG
       // ========================================================================
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),

@@ -40,6 +40,7 @@ class OrderService {
     required String userId,
     required String merchantId,
     required String merchantName,
+    String? customerName,
     required List<CartItemModel> items,
     required double subtotal,
     required double serviceFee,
@@ -75,6 +76,9 @@ class OrderService {
       userId: userId,
       merchantId: merchantId,
       merchantName: merchantName,
+      customerName: customerName?.trim().isNotEmpty == true
+          ? customerName!.trim()
+          : null,
       items: items,
       subtotal: subtotal,
       serviceFee: serviceFee,

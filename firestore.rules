@@ -37,6 +37,22 @@ service cloud.firestore {
       return signedIn() && resource.data.userId == request.auth.uid;
     }
 
+    /// Buyers may mark their own pickup order collected once the merchant marks it ready.
+    function buyerCollectsPickupOrder() {
+      return isOrderBuyer()
+        && resource.data.fulfillmentType == 'pickup'
+        && resource.data.orderStatus == 'ready'
+        && request.resource.data.orderStatus == 'completed'
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.merchantId == resource.data.merchantId
+        && request.resource.data.diff(resource.data).changedKeys()
+          .hasOnly([
+            'orderStatus',
+            'updatedAt',
+            'completedAt'
+          ]);
+    }
+
     /// Buyers may cancel their own early-stage orders; fulfillment progress is merchant-driven.
     function buyerCancelsOrderOnly() {
       return isOrderBuyer()
@@ -75,9 +91,12 @@ service cloud.firestore {
       ]);
     }
 
-    // Users can manage their own document; impactData updates only via Admin SDK (Cloud Function).
+    // Users manage their own doc; merchants may read buyer profiles for fulfillment.
     match /users/{userId} {
-      allow read, create: if signedIn() && request.auth.uid == userId;
+      allow read, create: if signedIn() && (
+        request.auth.uid == userId
+        || isMerchant()
+      );
 
       allow update: if signedIn()
         && request.auth.uid == userId
@@ -112,6 +131,7 @@ service cloud.firestore {
         (ownsMerchantId(resource.data.merchantId)
           && orderSustainabilityBookkeepingUntouched())
         || buyerCancelsOrderOnly()
+        || buyerCollectsPickupOrder()
       );
       allow delete: if false;
     }

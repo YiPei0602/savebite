@@ -138,7 +138,6 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
                     return _GreetingHeader(
                       location: current,
                       onLocationTap: _showLocationPicker,
-                      onNotificationsTap: () => context.push('/notifications'),
                     );
                   },
                 ),
@@ -322,12 +321,10 @@ class _HomeContentScreenState extends State<HomeContentScreen> {
 class _GreetingHeader extends StatelessWidget {
   final String location;
   final VoidCallback onLocationTap;
-  final VoidCallback onNotificationsTap;
 
   const _GreetingHeader({
     required this.location,
     required this.onLocationTap,
-    required this.onNotificationsTap,
   });
 
   @override
@@ -342,13 +339,7 @@ class _GreetingHeader extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                _LocationSelector(location: location, onTap: onLocationTap),
-                const Spacer(),
-                _NotificationButton(onTap: onNotificationsTap),
-              ],
-            ),
+            _LocationSelector(location: location, onTap: onLocationTap),
             const SizedBox(height: 14),
             RichText(
               text: TextSpan(
@@ -382,38 +373,6 @@ class _GreetingHeader extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _NotificationButton extends StatelessWidget {
-  final VoidCallback onTap;
-
-  const _NotificationButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(AppConstants.radiusL),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(AppConstants.radiusL),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppConstants.radiusL),
-            border: Border.all(color: AppColors.border.withOpacity(0.6)),
-            boxShadow: _elevationLow,
-          ),
-          child: const Icon(
-            Icons.notifications_none,
-            color: AppColors.textPrimary,
-            size: 22,
-          ),
-        ),
-      ),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:savebite/core/constants/app_constants.dart';
 import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
+import 'package:savebite/features/merchant_management/presentation/screens/merchant_order_detail_screen.dart';
 import 'package:savebite/features/marketplace_surplus/data/services/merchant_service.dart';
 import 'package:savebite/features/marketplace_surplus/domain/models/food_item_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/food_provider.dart';
@@ -842,29 +843,6 @@ class _MerchantHomePendingBanner extends StatefulWidget {
 }
 
 class _MerchantHomePendingBannerState extends State<_MerchantHomePendingBanner> {
-  bool _accepting = false;
-
-  Future<void> _acceptOrder(OrderModel order) async {
-    if (_accepting) return;
-    setState(() => _accepting = true);
-    final orderProvider = context.read<OrderProvider>();
-    final ok = await orderProvider.updateOrderStatus(
-      order.id,
-      OrderStatus.confirmed,
-    );
-    if (!mounted) return;
-    setState(() => _accepting = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok
-              ? 'Order accepted'
-              : orderProvider.errorMessage ?? 'Unable to accept order',
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final orderProvider = context.read<OrderProvider>();
@@ -927,22 +905,16 @@ class _MerchantHomePendingBannerState extends State<_MerchantHomePendingBanner> 
                 ),
                 const SizedBox(width: 6),
                 ElevatedButton(
-                  onPressed: _accepting ? null : () => _acceptOrder(pending.first),
+                  onPressed: () =>
+                      openMerchantOrderDetail(context, order: pending.first),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     foregroundColor: Colors.white,
                     elevation: 0,
                   ),
-                  child: _accepting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : Text(pending.length == 1 ? 'Accept' : 'Accept first'),
+                  child: Text(
+                    pending.length == 1 ? 'Review order' : 'Review first',
+                  ),
                 ),
               ],
             ),

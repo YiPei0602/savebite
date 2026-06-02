@@ -17,6 +17,7 @@ import 'package:savebite/features/orders_payments/state/providers/cart_provider.
 import 'package:savebite/features/marketplace_surplus/domain/models/merchant_model.dart';
 import 'package:savebite/features/marketplace_surplus/state/providers/merchant_provider.dart';
 import 'package:savebite/shared/utils/merchant_display_name_utils.dart';
+import 'package:savebite/shared/utils/order_customer_name_utils.dart';
 import 'package:savebite/shared/widgets/places_autocomplete_field.dart';
 
 String _normalizeHhMm24(String? raw) {
@@ -97,7 +98,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   @override
   void dispose() {
-    _reservationTicker?.cancel();
+    _stopReservationTicker();
     _deliveryAddressController.dispose();
     super.dispose();
   }
@@ -173,16 +174,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
+  void _stopReservationTicker() {
+    _reservationTicker?.cancel();
+    _reservationTicker = null;
+  }
+
   Future<void> _fireReservationExpired() async {
     if (_reservationExpiredHandled) return;
     _reservationExpiredHandled = true;
-    _reservationTicker?.cancel();
+    _stopReservationTicker();
     if (!mounted) return;
     setState(() {});
     await showReservationExpiredDialog(context);
     if (mounted) {
       context.go('/home');
     }
+  }
+
+  /// Stops countdown after payment succeeds — no expiry dialog.
+  void _finalizeReservationAfterPayment() {
+    if (_reservationExpiredHandled) return;
+    _reservationExpiredHandled = true;
+    _stopReservationTicker();
+    if (mounted) setState(() {});
   }
 
   Future<void> _onCheckoutBackRequested() async {
@@ -437,10 +451,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         )
         .toList(growable: false);
 
+    final buyer = auth.currentUser;
+    final customerName = customerNameFromUser(buyer);
+
     final args = PaymentCheckoutArgs(
       userId: userId,
       merchantId: merchantId,
       merchantName: merchantName,
+      customerName: customerName,
       items: snapshotItems,
       subtotal: _subtotal,
       serviceFee: 0.0,
@@ -467,7 +485,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       reservationExpiresAt: reservationExpiryUtc,
     );
 
-    context.push('/payment', extra: args);
+    // Checkout stays mounted under payment; pause timer so expiry does not fire
+    // after a successful payment while this route remains in the stack.
+    _stopReservationTicker();
+    final paymentSucceeded = await context.push<bool>('/payment', extra: args);
+    if (!mounted) return;
+    if (paymentSucceeded == true) {
+      _finalizeReservationAfterPayment();
+      return;
+    }
+    if (_reservationExpiredHandled) return;
+    final expiresAt = _reservationExpiresAtUtc;
+    if (expiresAt != null && !checkoutReservationExpired(expiresAt)) {
+      _startReservationTicker();
+    } else {
+      await _fireReservationExpired();
+    }
   }
 
   @override

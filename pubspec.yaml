@@ -33,7 +33,7 @@ dependencies:
 
   # UI & Design
   cupertino_icons: ^1.0.6
-  google_fonts: ^6.1.0
+  google_fonts: ^6.3.1
   
   # State Management
   provider: ^6.1.1
@@ -97,6 +97,10 @@ dependency_overrides:
 
 # The following section is specific to Flutter packages.
 flutter:
+
+  # CocoaPods only — maps/geolocator/sqflite lack SPM; Firebase SPM tags also conflict.
+  config:
+    enable-swift-package-manager: false
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

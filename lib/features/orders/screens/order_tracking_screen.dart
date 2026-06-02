@@ -53,6 +53,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   bool _statusStreamInitialized = false;
   OrderStatus? _lastKnownStatus;
+  bool _isConfirmingPickup = false;
 
   /// Cached motorbike bitmap for [MarkerId('driver')] only (shared across screens).
   static Future<BitmapDescriptor>? _driverMarkerBitmapFuture;
@@ -340,6 +341,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         current: order.orderStatus,
       );
       if (next == null) return;
+
+      // Pickup collection is buyer-driven via swipe — do not auto-complete at ready.
+      if (order.fulfillmentType == FulfillmentType.pickup &&
+          order.orderStatus == OrderStatus.ready &&
+          next == OrderStatus.completed) {
+        return;
+      }
 
       final delay = _demoDelay(
         fulfillmentType: order.fulfillmentType,
@@ -753,14 +761,55 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   const SizedBox(height: AppConstants.paddingL),
                 ],
                 _buildLocationCard(order),
-                const SizedBox(height: AppConstants.paddingL),
-                _buildActionButtons(order),
-                const SizedBox(height: 8),
+                if (!_showsPickupSwipeAction(order)) ...[
+                  const SizedBox(height: AppConstants.paddingL),
+                  _buildActionButtons(order),
+                  const SizedBox(height: 8),
+                ],
               ],
             ),
           ),
+          bottomNavigationBar: _showsPickupSwipeAction(order)
+              ? SafeArea(
+                  minimum: const EdgeInsets.fromLTRB(
+                    AppConstants.paddingL,
+                    0,
+                    AppConstants.paddingL,
+                    AppConstants.paddingL,
+                  ),
+                  child: _buildPickupCollectedSwipe(order),
+                )
+              : null,
         );
       },
+    );
+  }
+
+  bool _showsPickupSwipeAction(OrderModel order) {
+    return order.fulfillmentType == FulfillmentType.pickup &&
+        order.orderStatus == OrderStatus.ready;
+  }
+
+  Widget _buildPickupCollectedSwipe(OrderModel order) {
+    return _SwipeToConfirmButton(
+      label: 'Order collected',
+      enabled: !_isConfirmingPickup,
+      onConfirmed: () => _confirmPickupCollected(order),
+    );
+  }
+
+  Widget _buildOrderIdLine(String id) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppConstants.paddingM),
+      child: Text(
+        '#$id',
+        style: AppTypography.caption.copyWith(
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w700,
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 
@@ -777,7 +826,6 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final refundHint = BuyerOrderProgress.merchantRejectRefundSubtitle(order).trim();
 
     final id = order.id.isNotEmpty ? order.id : widget.orderId;
-    final shortId = id.length <= 6 ? id : id.substring(id.length - 6);
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -836,6 +884,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  _buildOrderIdLine(id),
                 ] else ...[
                   Text(
                     title,
@@ -871,30 +920,36 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                     ),
                   ],
+                  _buildOrderIdLine(id),
                 ],
               ],
             ),
           ),
-          const SizedBox(width: AppConstants.paddingS),
-          Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppConstants.paddingS,
-              vertical: AppConstants.paddingXS,
-            ),
-            decoration: BoxDecoration(
-              color: AppColors.surfaceVariant,
-              borderRadius: BorderRadius.circular(AppConstants.radiusS),
-            ),
-            child: Text(
-              '#$shortId',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _confirmPickupCollected(OrderModel order) async {
+    if (_isConfirmingPickup) return;
+    setState(() => _isConfirmingPickup = true);
+
+    final orderProvider = context.read<OrderProvider>();
+    final ok = await orderProvider.updateOrderStatus(
+      order.id,
+      OrderStatus.completed,
+    );
+
+    if (!mounted) return;
+    if (ok) {
+      HapticFeedback.mediumImpact();
+      context.go('/home');
+      return;
+    }
+
+    setState(() => _isConfirmingPickup = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not confirm pickup. Please try again.')),
     );
   }
 
@@ -1074,6 +1129,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     final status = order.orderStatus;
     final canCancel =
         status == OrderStatus.pending || status == OrderStatus.confirmed;
+
+    if (_showsPickupSwipeAction(order)) {
+      return const SizedBox.shrink();
+    }
 
     if (status == OrderStatus.completed) {
       return SizedBox(
@@ -1505,5 +1564,118 @@ String _statusDescription(OrderModel order) {
       return (color: const Color(0xFF2563EB), icon: Icons.check_circle_outline);
     case OrderStatus.pending:
       return (color: AppColors.warning, icon: Icons.schedule);
+  }
+}
+
+/// Swipe-right to confirm (e.g. pickup collected).
+class _SwipeToConfirmButton extends StatefulWidget {
+  const _SwipeToConfirmButton({
+    required this.label,
+    required this.onConfirmed,
+    this.enabled = true,
+  });
+
+  final String label;
+  final VoidCallback onConfirmed;
+  final bool enabled;
+
+  @override
+  State<_SwipeToConfirmButton> createState() => _SwipeToConfirmButtonState();
+}
+
+class _SwipeToConfirmButtonState extends State<_SwipeToConfirmButton> {
+  static const _trackColor = Color(0xFF212121);
+  static const _height = 56.0;
+  static const _thumbSize = 48.0;
+  static const _horizontalPadding = 4.0;
+
+  double _dragOffset = 0;
+  bool _confirmed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final trackWidth = constraints.maxWidth;
+        final maxDrag = max(
+          0.0,
+          trackWidth - _thumbSize - (_horizontalPadding * 2),
+        );
+        final threshold = maxDrag * 0.75;
+        final offset = _confirmed ? maxDrag : _dragOffset.clamp(0.0, maxDrag);
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragUpdate: widget.enabled && !_confirmed
+              ? (details) {
+                  setState(() {
+                    _dragOffset = max(
+                      0.0,
+                      min(maxDrag, _dragOffset + details.delta.dx),
+                    );
+                  });
+                }
+              : null,
+          onHorizontalDragEnd: widget.enabled && !_confirmed
+              ? (_) {
+                  if (_dragOffset >= threshold) {
+                    setState(() {
+                      _confirmed = true;
+                      _dragOffset = maxDrag;
+                    });
+                    widget.onConfirmed();
+                  } else {
+                    setState(() => _dragOffset = 0);
+                  }
+                }
+              : null,
+          child: SizedBox(
+            height: _height,
+            width: double.infinity,
+            child: Stack(
+              alignment: Alignment.centerLeft,
+              children: [
+                Container(
+                  height: _height,
+                  decoration: BoxDecoration(
+                    color: widget.enabled
+                        ? _trackColor
+                        : _trackColor.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(
+                      AppConstants.primaryCtaPillRadius,
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Text(
+                    widget.label,
+                    style: AppTypography.buttonMedium.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: _horizontalPadding + offset,
+                  child: Container(
+                    width: _thumbSize,
+                    height: _thumbSize,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_double_arrow_right,
+                      color: _trackColor,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }

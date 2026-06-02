@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +14,8 @@ import 'package:savebite/core/theme/app_colors.dart';
 import 'package:savebite/core/theme/app_typography.dart';
 import 'package:savebite/features/orders_payments/data/services/stock_reservation_service.dart';
 import 'package:savebite/features/orders_payments/domain/payment_checkout_args.dart';
+import 'package:savebite/features/auth_profile_impact/state/providers/auth_provider.dart';
+import 'package:savebite/shared/utils/order_customer_name_utils.dart';
 import 'package:savebite/features/orders_payments/domain/models/order_model.dart';
 import 'package:savebite/features/orders_payments/presentation/widgets/checkout_reservation_ui.dart';
 import 'package:savebite/features/orders_payments/presentation/widgets/order_placed_success_dialog.dart';
@@ -33,6 +35,7 @@ class PaymentScreen extends StatefulWidget {
 class _PaymentScreenState extends State<PaymentScreen> {
   bool _busy = false;
   bool _cardComplete = false;
+  bool _orderPlaced = false;
 
   late DateTime _reservationExpiresUtc;
   Timer? _reservationTicker;
@@ -64,14 +67,28 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   @override
   void dispose() {
-    _reservationTicker?.cancel();
+    _stopReservationTicker();
     super.dispose();
   }
 
-  Future<void> _handleReservationExpiry() async {
-    if (_reservationExpiredHandled) return;
-    _reservationExpiredHandled = true;
+  void _stopReservationTicker() {
     _reservationTicker?.cancel();
+    _reservationTicker = null;
+  }
+
+  /// Reservation is consumed once payment succeeds — stop countdown permanently.
+  void _finalizeReservationAfterPayment() {
+    if (_orderPlaced) return;
+    _orderPlaced = true;
+    _reservationExpiredHandled = true;
+    _stopReservationTicker();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _handleReservationExpiry() async {
+    if (_orderPlaced || _reservationExpiredHandled) return;
+    _reservationExpiredHandled = true;
+    _stopReservationTicker();
     if (!mounted) return;
     setState(() {});
     await showReservationExpiredDialog(context);
@@ -80,6 +97,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _onPaymentBackRequested() async {
+    if (_orderPlaced) {
+      context.pop(true);
+      return;
+    }
     if (_reservationExpiredHandled) return;
     final leave = await showLeaveCheckoutDialog(context);
     if (!mounted) return;
@@ -89,6 +110,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   bool get _paymentBlocked =>
+      _orderPlaced ||
       _reservationExpiredHandled ||
       checkoutReservationExpired(_reservationExpiresUtc);
 
@@ -361,12 +383,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     final orderProvider = context.read<OrderProvider>();
     final cartProvider = context.read<CartProvider>();
+    final customerName = args.customerName?.trim().isNotEmpty == true
+        ? args.customerName!.trim()
+        : customerNameFromUser(context.read<AuthProvider>().currentUser);
 
     try {
       final order = await orderProvider.createOrder(
         userId: args.userId,
         merchantId: args.merchantId,
         merchantName: args.merchantName,
+        customerName: customerName,
         items: args.items,
         subtotal: args.subtotal,
         serviceFee: args.serviceFee,
@@ -394,6 +420,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         return;
       }
 
+      _finalizeReservationAfterPayment();
       cartProvider.clearCart();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -411,6 +438,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         orderId: order.id,
         onTrackOrder: () {
           Navigator.of(context).pop();
+          context.pop(true);
           context.push('/order-tracking/${order.id}');
         },
       );
@@ -453,14 +481,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
             style: AppTypography.h3.copyWith(color: AppColors.textPrimary),
           ),
           actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: AppConstants.paddingS),
-              child: Center(
-                child: ReservationCountdownBadge(
-                  expiresAtUtc: _reservationExpiresUtc,
+            if (!_orderPlaced &&
+                !_reservationExpiredHandled)
+              Padding(
+                padding: const EdgeInsets.only(right: AppConstants.paddingS),
+                child: Center(
+                  child: ReservationCountdownBadge(
+                    expiresAtUtc: _reservationExpiresUtc,
+                  ),
                 ),
               ),
-            ),
           ],
         ),
         body: SingleChildScrollView(
