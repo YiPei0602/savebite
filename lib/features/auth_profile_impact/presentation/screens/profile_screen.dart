@@ -54,7 +54,7 @@ class ProfileScreen extends StatelessWidget {
                         const SizedBox(height: AppConstants.paddingL),
                         _buildMerchantActionsSection(context, authProvider),
                       ] else ...[
-                      _buildMenuSection(context, authProvider),
+                        _buildMenuSection(context, authProvider),
                       ],
                       const SizedBox(height: AppConstants.paddingXL),
                     ],
@@ -180,7 +180,8 @@ class ProfileScreen extends StatelessWidget {
           );
         }
         final name = m.name.trim().isNotEmpty ? m.name.trim() : 'Not set';
-        final address = m.address.trim().isNotEmpty ? m.address.trim() : 'Not set';
+        final address =
+            m.address.trim().isNotEmpty ? m.address.trim() : 'Not set';
         final phone =
             m.phoneNumber.trim().isNotEmpty ? m.phoneNumber.trim() : 'Not set';
         final desc =
@@ -309,7 +310,6 @@ class ProfileScreen extends StatelessWidget {
     final moneySaved = impactData.moneySaved;
     final co2Reduced = impactData.co2Reduced;
     final mealsSaved = impactData.mealsSaved;
-    const gap = AppConstants.paddingM;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
@@ -353,41 +353,34 @@ class ProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppConstants.paddingS),
-          ImpactProfileMetricCard(
-            icon: Icons.cloud_outlined,
-            label: ImpactDisplay.profileCo2Label,
-            value: ImpactDisplay.formatCo2Kg(co2Reduced),
-            accentColor: AppColors.co2Reduced,
-            backgroundColor: AppColors.impactCo2Fill,
-            emphasized: true,
+          Row(
+            children: [
+              Expanded(
+                child: ImpactSnapshotMiniCard(
+                  icon: Icons.cloud_outlined,
+                  title: 'CO2e prevented',
+                  value: ImpactDisplay.formatCo2Kg(co2Reduced),
+                  accentColor: AppColors.co2Reduced,
+                ),
+              ),
+              const SizedBox(width: AppConstants.paddingM),
+              Expanded(
+                child: ImpactSnapshotMiniCard(
+                  icon: Icons.payments_outlined,
+                  title: ImpactDisplay.profileMoneyLabel(
+                    isMerchant: isMerchant,
+                  ),
+                  value: ImpactDisplay.formatMoneySummary(moneySaved),
+                  accentColor: AppColors.moneySaved,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: gap),
-          if (isMerchant)
-            ImpactProfileMetricCard(
-              icon: Icons.restaurant_outlined,
-              label: ImpactDisplay.profileMealsLabel(isMerchant: isMerchant),
-              value: '$mealsSaved',
-              accentColor: AppColors.impactMealsAccent,
-              backgroundColor: AppColors.impactMealsFill,
-              alignWithPrimary: true,
-            )
-          else
-            ImpactProfileMetricRow(
-              left: ImpactProfileMetricCard(
-                icon: Icons.payments_outlined,
-                label: ImpactDisplay.profileMoneyLabel,
-                value: ImpactDisplay.formatMoneySummary(moneySaved),
-                accentColor: AppColors.moneySaved,
-                backgroundColor: AppColors.impactMoneyFill,
-              ),
-              right: ImpactProfileMetricCard(
-                icon: Icons.restaurant_outlined,
-                label: ImpactDisplay.profileMealsLabel(isMerchant: isMerchant),
-                value: '$mealsSaved',
-                accentColor: AppColors.impactMealsAccent,
-                backgroundColor: AppColors.impactMealsFill,
-              ),
-            ),
+          const SizedBox(height: AppConstants.paddingM),
+          ImpactSnapshotHeroCard(
+            title: 'Meals saved',
+            value: '$mealsSaved',
+          ),
         ],
       ),
     );
@@ -513,4 +506,3 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 }
-

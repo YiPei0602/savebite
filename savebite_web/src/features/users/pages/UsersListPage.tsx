@@ -4,7 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { GenerateReportButton } from '@/shared/components/Common/GenerateReportButton'
 import type { UserRecord } from '@/shared/types/models'
-import { deleteUser, getUsers, updateUserStatus } from '@/features/users/api/usersApi'
+import {
+  deleteUser,
+  subscribeUsers,
+  updateUserStatus,
+} from '@/features/users/api/usersApi'
 
 export function UsersListPage() {
   const navigate = useNavigate()
@@ -33,24 +37,20 @@ export function UsersListPage() {
   }
 
   useEffect(() => {
-    let alive = true
-    ;(async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const u = await getUsers()
-        if (!alive) return
+    setLoading(true)
+    setError(null)
+    const unsub = subscribeUsers(
+      (u) => {
         setUsers(u)
-      } catch (e) {
-        if (!alive) return
-        setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        if (!alive) return
         setLoading(false)
-      }
-    })()
+      },
+      (e) => {
+        setError(e instanceof Error ? e.message : String(e))
+        setLoading(false)
+      },
+    )
     return () => {
-      alive = false
+      unsub()
     }
   }, [])
 

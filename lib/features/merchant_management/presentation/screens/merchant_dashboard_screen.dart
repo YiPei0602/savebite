@@ -23,6 +23,7 @@ import 'package:timezone/timezone.dart' as tz;
 class MerchantDashboardScreen extends StatefulWidget {
   const MerchantDashboardScreen({
     super.key,
+
     /// When embedded in [MerchantShellScreen], switches to the Orders tab.
     this.onGoToOrdersTab,
   });
@@ -30,12 +31,42 @@ class MerchantDashboardScreen extends StatefulWidget {
   final VoidCallback? onGoToOrdersTab;
 
   @override
-  State<MerchantDashboardScreen> createState() => _MerchantDashboardScreenState();
+  State<MerchantDashboardScreen> createState() =>
+      _MerchantDashboardScreenState();
 }
 
 class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
   List<FoodItemModel> _merchantListings = const [];
   bool _listingsLoading = true;
+
+  ({int completedTodayCount, double todayRevenue}) _todayStatsFromOrders(
+    List<OrderModel> orders,
+  ) {
+    final loc = tz.getLocation('Asia/Kuala_Lumpur');
+    final now = tz.TZDateTime.now(loc);
+    final startOfDay = tz.TZDateTime(loc, now.year, now.month, now.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    final completedToday = orders.where((o) {
+      if (o.orderStatus != OrderStatus.completed) return false;
+      if (o.paymentStatus != PaymentStatus.paid) return false;
+      final completedAt = o.completedAt;
+      if (completedAt == null) return false;
+      final c = tz.TZDateTime.from(completedAt, loc);
+      return !c.isBefore(startOfDay) && c.isBefore(endOfDay);
+    }).toList(growable: false);
+
+    // Merchant revenue excludes delivery fee by design.
+    final todayRevenue = completedToday.fold<double>(
+      0.0,
+      (sum, o) => sum + o.subtotal,
+    );
+
+    return (
+      completedTodayCount: completedToday.length,
+      todayRevenue: todayRevenue,
+    );
+  }
 
   Future<void> _maybeShowExpiredDismissDialog(String merchantId) async {
     final expired = _merchantListings
@@ -63,7 +94,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               onPressed: () async {
                 Navigator.of(ctx).pop();
                 final foodProvider = context.read<FoodProvider>();
-                await foodProvider.dismissExpiredFromMerchantDashboard(merchantId);
+                await foodProvider
+                    .dismissExpiredFromMerchantDashboard(merchantId);
                 if (!mounted) return;
                 await _refreshMerchantListings(runLifecycle: false);
                 if (!mounted) return;
@@ -71,7 +103,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Ended listings removed from your dashboard.'),
+                    content:
+                        Text('Ended listings removed from your dashboard.'),
                   ),
                 );
               },
@@ -140,8 +173,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer4<AuthProvider, FoodProvider, MerchantProvider, OrderProvider>(
-      builder: (context, authProvider, foodProvider, merchantProvider, orderProvider, _) {
+    return Consumer3<AuthProvider, FoodProvider, MerchantProvider>(
+      builder: (context, authProvider, foodProvider, merchantProvider, _) {
         final user = authProvider.currentUser;
 
         // Avoid showing another merchant's data: if this merchant isn't linked yet,
@@ -176,31 +209,15 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
             )
             .length;
 
-        final orders = orderProvider.orders;
-        final loc = tz.getLocation('Asia/Kuala_Lumpur');
-        final now = tz.TZDateTime.now(loc);
-        final startOfDay = tz.TZDateTime(loc, now.year, now.month, now.day);
-        final endOfDay = startOfDay.add(const Duration(days: 1));
-        final completedToday = orders.where((o) {
-          if (o.orderStatus != OrderStatus.completed) return false;
-          if (o.paymentStatus != PaymentStatus.paid) return false;
-          final completedAt = o.completedAt;
-          if (completedAt == null) return false;
-          final c = tz.TZDateTime.from(completedAt, loc);
-          return !c.isBefore(startOfDay) && c.isBefore(endOfDay);
-        }).toList(growable: false);
-        final completedTodayCount = completedToday.length;
-        final todayRevenue = completedToday.fold<double>(
-          0.0,
-          (sum, o) => sum + o.subtotal,
-        );
-
-        final merchantList =
-            merchantProvider.merchants.where((m) => m.id == merchantId).toList();
+        final merchantList = merchantProvider.merchants
+            .where((m) => m.id == merchantId)
+            .toList();
         final merchant = merchantList.isEmpty ? null : merchantList.first;
 
         final merchantName = merchant?.name ??
-            (merchantItems.isNotEmpty ? merchantItems.first.merchantName : null) ??
+            (merchantItems.isNotEmpty
+                ? merchantItems.first.merchantName
+                : null) ??
             user?.name ??
             'Your Store';
 
@@ -211,8 +228,9 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               children: [
                 _buildHeader(
                   merchantName: merchantName,
-                  onReceiptTap: widget.onGoToOrdersTab ??
+                  onOrdersTap: widget.onGoToOrdersTab ??
                       () => context.push('/merchant-orders'),
+                  onDailySalesTap: () => context.push('/merchant-daily-sales'),
                 ),
                 if (merchantId != null &&
                     merchantId.isNotEmpty &&
@@ -221,12 +239,30 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                     merchantId: merchantId,
                     onViewOrders: widget.onGoToOrdersTab!,
                   ),
-                _buildStatsSection(
-                  activeItems: activeItems,
-                  expiringSoon30Min: expiringSoon30Min,
-                  completedTodayCount: completedTodayCount,
-                  todayRevenue: todayRevenue,
-                ),
+                if (merchantId == null || merchantId.isEmpty)
+                  _buildStatsSection(
+                    activeItems: activeItems,
+                    expiringSoon30Min: expiringSoon30Min,
+                    completedTodayCount: 0,
+                    todayRevenue: 0.0,
+                  )
+                else
+                  StreamBuilder<List<OrderModel>>(
+                    stream: context
+                        .read<OrderProvider>()
+                        .watchMerchantOrders(merchantId),
+                    builder: (context, snapshot) {
+                      final stats = _todayStatsFromOrders(
+                        snapshot.data ?? const <OrderModel>[],
+                      );
+                      return _buildStatsSection(
+                        activeItems: activeItems,
+                        expiringSoon30Min: expiringSoon30Min,
+                        completedTodayCount: stats.completedTodayCount,
+                        todayRevenue: stats.todayRevenue,
+                      );
+                    },
+                  ),
                 Expanded(
                   child: _listingsLoading
                       ? const Center(child: CircularProgressIndicator())
@@ -235,7 +271,6 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               ],
             ),
           ),
-
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () async {
               await context.push('/add-surplus');
@@ -252,7 +287,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
 
   Widget _buildHeader({
     required String merchantName,
-    required VoidCallback onReceiptTap,
+    required VoidCallback onOrdersTap,
+    required VoidCallback onDailySalesTap,
   }) {
     return Container(
       padding: const EdgeInsets.all(AppConstants.paddingL),
@@ -273,9 +309,13 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
               ],
             ),
           ),
-
           IconButton(
-            onPressed: onReceiptTap,
+            onPressed: onDailySalesTap,
+            icon: Icon(Icons.calendar_month_outlined, color: AppColors.primary),
+            tooltip: 'Daily Sales Summary',
+          ),
+          IconButton(
+            onPressed: onOrdersTap,
             icon: Icon(Icons.receipt_long, color: AppColors.primary),
             tooltip: 'Orders',
           ),
@@ -385,7 +425,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
+          padding:
+              const EdgeInsets.symmetric(horizontal: AppConstants.paddingL),
           child: Text('My Listings', style: AppTypography.h4),
         ),
         const SizedBox(height: 12),
@@ -499,7 +540,6 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                 ),
               ),
             ),
-
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -529,7 +569,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: AppColors.textSecondary.withOpacity(0.12),
+                                  color:
+                                      AppColors.textSecondary.withOpacity(0.12),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -599,14 +640,17 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                             Icon(
                               Icons.inventory_2_outlined,
                               size: 14,
-                              color: isSoldOut ? AppColors.error : AppColors.primary,
+                              color: isSoldOut
+                                  ? AppColors.error
+                                  : AppColors.primary,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               '${item.stock} left',
                               style: AppTypography.caption.copyWith(
-                                color:
-                                    isSoldOut ? AppColors.error : AppColors.primary,
+                                color: isSoldOut
+                                    ? AppColors.error
+                                    : AppColors.primary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -618,7 +662,6 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                 ),
               ),
             ),
-
             SizedBox(
               width: 40,
               child: PopupMenuButton<String>(
@@ -626,7 +669,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                 onSelected: (value) async {
                   if (value == 'edit') {
                     await context.push('/add-surplus', extra: item);
-                    if (mounted) await _refreshMerchantListings(runLifecycle: false);
+                    if (mounted)
+                      await _refreshMerchantListings(runLifecycle: false);
                   } else if (value == 'delete') {
                     _showDeleteDialog(item);
                   } else if (value == 'soldOut') {
@@ -658,7 +702,9 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                             size: 20,
                           ),
                           const SizedBox(width: 12),
-                          Text(isSoldOut ? 'Mark as available' : 'Mark sold out'),
+                          Text(isSoldOut
+                              ? 'Mark as available'
+                              : 'Mark sold out'),
                         ],
                       ),
                     ),
@@ -676,7 +722,8 @@ class _MerchantDashboardScreenState extends State<MerchantDashboardScreen> {
                       value: 'delete',
                       child: Row(
                         children: [
-                          Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                          Icon(Icons.delete_outline,
+                              size: 20, color: Colors.red),
                           SizedBox(width: 12),
                           Text('Delete', style: TextStyle(color: Colors.red)),
                         ],
@@ -779,7 +826,8 @@ class _MarkAvailableDialogState extends State<_MarkAvailableDialog> {
     final value = int.tryParse(_controller.text.trim());
     if (value == null || value < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid quantity (1 or more)')),
+        const SnackBar(
+            content: Text('Please enter a valid quantity (1 or more)')),
       );
       return;
     }
@@ -842,7 +890,8 @@ class _MerchantHomePendingBanner extends StatefulWidget {
       _MerchantHomePendingBannerState();
 }
 
-class _MerchantHomePendingBannerState extends State<_MerchantHomePendingBanner> {
+class _MerchantHomePendingBannerState
+    extends State<_MerchantHomePendingBanner> {
   @override
   Widget build(BuildContext context) {
     final orderProvider = context.read<OrderProvider>();
@@ -924,4 +973,3 @@ class _MerchantHomePendingBannerState extends State<_MerchantHomePendingBanner> 
     );
   }
 }
-

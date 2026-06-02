@@ -522,6 +522,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         : '';
   }
 
+  String _riderWhatsAppPrefill(OrderModel order) {
+    final merchantName = _resolveMerchantName(order).trim();
+    final safeMerchant = merchantName.isEmpty ? 'your store' : merchantName;
+    return 'Hello, I am waiting for my SaveBite order #${order.id} from '
+        '$safeMerchant. Please share your current ETA. Thank you!';
+  }
+
   void _contactMerchant(OrderModel order) {
     showDialog(
       context: context,
@@ -1348,48 +1355,30 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ],
           if (phone != null && phone.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      final ok = await callRiderPhone(phone);
-                      if (!mounted) return;
-                      if (!ok) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Unable to open phone dialer'),
-                          ),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.phone, size: 18),
-                    label: const Text('Call'),
-                  ),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final result = await openRiderWhatsApp(
+                    phone,
+                    message: _riderWhatsAppPrefill(order),
+                  );
+                  if (!mounted) return;
+                  final message = riderWhatsAppLaunchSnackMessage(result);
+                  if (message != null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(message)),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                label: const Text('WhatsApp'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final result = await openRiderWhatsApp(phone);
-                      if (!mounted) return;
-                      final message = riderWhatsAppLaunchSnackMessage(result);
-                      if (message != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(message)),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                    label: const Text('WhatsApp'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ],
         ],

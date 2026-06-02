@@ -76,6 +76,7 @@ export function GenerateReportButton({
   const [endDate, setEndDate] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [reportError, setReportError] = useState('')
 
   // Dashboard-specific state
   const [dashboardMetrics, setDashboardMetrics] = useState({
@@ -125,7 +126,59 @@ export function GenerateReportButton({
     setEndDate(format(now, 'yyyy-MM-dd'))
   }
 
+  const getFilteredUsersForReport = (usersInput: any[]) => {
+    let filteredUsers = usersInput
+
+    if (userTypeFilter !== 'all') {
+      filteredUsers = filteredUsers.filter((u) => u.role === userTypeFilter)
+    }
+
+    if (userStatusFilter !== 'all') {
+      filteredUsers = filteredUsers.filter((u) => u.status === userStatusFilter)
+    }
+
+    if (startDate && endDate) {
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      filteredUsers = filteredUsers.filter((u) => {
+        const createdAt = new Date(u.createdAt)
+        return createdAt >= start && createdAt <= end
+      })
+    }
+
+    return filteredUsers
+  }
+
   const handleGenerateReport = async () => {
+    setReportError('')
+
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      setReportError('Start date cannot be later than end date.')
+      return
+    }
+
+    if (pageContext === 'dashboard') {
+      const selectedMetricCount = Object.values(dashboardMetrics).filter(Boolean).length
+      if (selectedMetricCount === 0) {
+        setReportError('Please select at least one dashboard metric to export.')
+        return
+      }
+      const totalOrders = Number(data?.totalOrders) || 0
+      if (dashboardMetrics.ordersTrend && totalOrders === 0) {
+        setReportError('No completed order data available for the selected dashboard report.')
+        return
+      }
+    }
+
+    if (pageContext === 'users') {
+      const usersInput = Array.isArray(data) ? data : []
+      const filteredUsers = getFilteredUsersForReport(usersInput)
+      if (filteredUsers.length === 0) {
+        setReportError('No user records match the selected report criteria.')
+        return
+      }
+    }
+
     setIsGenerating(true)
     try {
       const doc = new jsPDF()
@@ -179,8 +232,8 @@ export function GenerateReportButton({
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 3000)
     } catch (e) {
-      console.error(e)
-      alert('Could not generate PDF. Please try again.')
+      console.error('Report generation failed', e)
+      setReportError('The system failed to generate the report. Please try again.')
     } finally {
       setIsGenerating(false)
     }
@@ -344,26 +397,7 @@ export function GenerateReportButton({
     doc.text('User Account Report', 14, yPos)
     yPos += 10
 
-    // Apply filters
-    let filteredUsers = usersInput
-
-    if (userTypeFilter !== 'all') {
-      filteredUsers = filteredUsers.filter(u => u.role === userTypeFilter)
-    }
-
-    if (userStatusFilter !== 'all') {
-      filteredUsers = filteredUsers.filter(u => u.status === userStatusFilter)
-    }
-
-    // Filter by date range (createdAt)
-    if (startDate && endDate) {
-      const start = new Date(startDate)
-      const end = new Date(endDate)
-      filteredUsers = filteredUsers.filter(u => {
-        const createdAt = new Date(u.createdAt)
-        return createdAt >= start && createdAt <= end
-      })
-    }
+    const filteredUsers = getFilteredUsersForReport(usersInput)
 
     doc.setFont('helvetica', 'normal')
     doc.text(`Total Users: ${filteredUsers.length}`, 14, yPos)
@@ -444,6 +478,12 @@ export function GenerateReportButton({
             </div>
 
             <div className="space-y-4">
+              {reportError && (
+                <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
+                  {reportError}
+                </div>
+              )}
+
               {/* Date Range - Common for all pages */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -560,6 +600,42 @@ export function GenerateReportButton({
                   </div>
                 </>
               )}
+
+              {/* Report Preview */}
+              <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                <p className="text-sm font-semibold text-gray-800 mb-2">Report Preview</p>
+                {pageContext === 'dashboard' ? (
+                  <div className="space-y-1 text-sm text-gray-700">
+                    <p>Selected metrics: {Object.values(dashboardMetrics).filter(Boolean).length}</p>
+                    {dashboardMetrics.totalConsumers && (
+                      <p>Total consumers: {Number(data?.totalConsumers) || 0}</p>
+                    )}
+                    {dashboardMetrics.totalMerchants && (
+                      <p>Total merchants: {Number(data?.totalMerchants) || 0}</p>
+                    )}
+                    {dashboardMetrics.totalOrders && (
+                      <p>Total completed orders: {Number(data?.totalOrders) || 0}</p>
+                    )}
+                    {dashboardMetrics.ordersTrend && (
+                      <p>
+                        Trend points: {Array.isArray(data?.ordersTrendData) ? data.ordersTrendData.length : 0}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-sm text-gray-700">
+                    <p>
+                      Matching users: {getFilteredUsersForReport(Array.isArray(data) ? data : []).length}
+                    </p>
+                    <p>
+                      Filters: Role={userTypeFilter}, Status={userStatusFilter}
+                    </p>
+                    <p>
+                      Date range: {startDate || '-'} to {endDate || '-'}
+                    </p>
+                  </div>
+                )}
+              </div>
 
             </div>
 

@@ -103,17 +103,19 @@ class ImpactDashboardScreen extends StatelessWidget {
                     accentColor: AppColors.impactMealsAccent,
                     backgroundColor: AppColors.impactMealsFill,
                   ),
-                  if (!isMerchant) ...[
-                    const SizedBox(height: AppConstants.paddingM),
-                    ImpactDetailMetricCard(
-                      icon: Icons.savings,
-                      title: ImpactDisplay.consumerMoneyTitle,
-                      value: ImpactDisplay.formatMoneyDetail(money),
-                      subtitle: 'Sum of listing discounts',
-                      accentColor: AppColors.moneySaved,
-                      backgroundColor: AppColors.impactMoneyFill,
-                    ),
-                  ],
+                  const SizedBox(height: AppConstants.paddingM),
+                  ImpactDetailMetricCard(
+                    icon: Icons.savings,
+                    title: isMerchant
+                        ? ImpactDisplay.merchantMoneyTitle
+                        : ImpactDisplay.consumerMoneyTitle,
+                    value: ImpactDisplay.formatMoneyDetail(money),
+                    subtitle: isMerchant
+                        ? 'Sum of completed order subtotals'
+                        : 'Sum of listing discounts',
+                    accentColor: AppColors.moneySaved,
+                    backgroundColor: AppColors.impactMoneyFill,
+                  ),
                   const SizedBox(height: AppConstants.paddingXL),
                   Text(
                     'Milestones',

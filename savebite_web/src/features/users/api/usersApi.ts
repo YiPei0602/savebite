@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   orderBy,
   query,
   updateDoc,
@@ -49,6 +50,22 @@ export async function getUsers(): Promise<UserRecord[]> {
   const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'))
   const snap = await getDocs(q)
   return snap.docs.map((d) => mapUserDoc(d.id, d.data() as Record<string, unknown>))
+}
+
+export function subscribeUsers(
+  onData: (users: UserRecord[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'))
+  return onSnapshot(
+    q,
+    (snap) => {
+      onData(snap.docs.map((d) => mapUserDoc(d.id, d.data() as Record<string, unknown>)))
+    },
+    (err) => {
+      if (onError) onError(err)
+    },
+  )
 }
 
 export async function getUserById(id: string): Promise<UserRecord | null> {

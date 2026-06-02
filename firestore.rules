@@ -21,6 +21,17 @@ service cloud.firestore {
       return hasUserDoc() && userDoc().data.role == 'merchant';
     }
 
+    function isAdmin() {
+      return (hasUserDoc() && userDoc().data.role == 'admin')
+        || (
+          signedIn()
+          && request.auth.token.email != null
+          && request.auth.token.email in [
+            'admin@gmail.com'
+          ]
+        );
+    }
+
     function ownsMerchantId(merchantId) {
       return signedIn()
         && (
@@ -94,17 +105,23 @@ service cloud.firestore {
     // Users manage their own doc; merchants may read buyer profiles for fulfillment.
     match /users/{userId} {
       allow read, create: if signedIn() && (
+        isAdmin()
+        || 
         request.auth.uid == userId
         || isMerchant()
       );
 
-      allow update: if signedIn()
-        && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).changedKeys().hasAny([
-          'impactData'
-        ]);
+      allow update: if signedIn() && (
+        isAdmin()
+        || (
+          request.auth.uid == userId
+          && !request.resource.data.diff(resource.data).changedKeys().hasAny([
+            'impactData'
+          ])
+        )
+      );
 
-      allow delete: if signedIn() && request.auth.uid == userId;
+      allow delete: if signedIn() && (isAdmin() || request.auth.uid == userId);
     }
 
     match /merchants/{merchantId} {
@@ -124,6 +141,8 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid;
       allow read: if signedIn() && (
+        isAdmin()
+        ||
         resource.data.userId == request.auth.uid
         || ownsMerchantId(resource.data.merchantId)
       );

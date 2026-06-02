@@ -7,8 +7,9 @@ abstract final class ImpactDisplay {
   static const consumerMoneyTitle = 'Total Money Saved';
   static const consumerCo2Title = 'Estimated CO₂e Prevented';
 
-  // Merchant labels (no money — that metric reflects consumer savings)
+  // Merchant labels
   static const merchantMealsTitle = 'Total Meals Rescued';
+  static const merchantMoneyTitle = 'Total Money Earned';
   static const merchantCo2Title = 'Estimated CO₂e Prevented';
 
   static String mealsTitle({required bool isMerchant}) =>
@@ -21,11 +22,11 @@ abstract final class ImpactDisplay {
   static String profileMealsLabel({required bool isMerchant}) =>
       isMerchant ? 'Meals rescued' : 'Meals saved';
 
-  static const profileMoneyLabel = 'Money saved';
+  static String profileMoneyLabel({required bool isMerchant}) =>
+      isMerchant ? 'Money earned' : 'Money saved';
   static const profileCo2Label = 'CO₂e prevented';
 
-  static const profileSubtitle =
-      'From completed orders · 1 item = 1 meal';
+  static const profileSubtitle = 'From completed orders · 1 item = 1 meal';
 
   /// One decimal place (e.g. 1 meal × 2.7 → `2.7 kg`).
   static String formatCo2Kg(double kg) => '${kg.toStringAsFixed(1)} kg';

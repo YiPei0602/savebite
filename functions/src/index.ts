@@ -501,6 +501,10 @@ function readTotalSavings(after: Record<string, unknown>): number {
   return coerceFiniteNumber(after.totalSavings) ?? 0;
 }
 
+function readSubtotal(after: Record<string, unknown>): number {
+  return coerceFiniteNumber(after.subtotal) ?? 0;
+}
+
 function lineMealQuantity(line: Record<string, unknown>): number {
   const qtyKeys = ["quantity", "qty", "mealCount"];
   let best = 0;
@@ -545,13 +549,13 @@ function normalizedOrderStatus(
  */
 function impactIncrementsNestedPayload(
   meals: number,
-  totalSavings: number,
+  moneyAmount: number,
   co2Delta: number
 ) {
   return {
     impactData: {
       mealsSaved: admin.firestore.FieldValue.increment(meals),
-      moneySaved: admin.firestore.FieldValue.increment(totalSavings),
+      moneySaved: admin.firestore.FieldValue.increment(moneyAmount),
       co2Reduced: admin.firestore.FieldValue.increment(co2Delta),
       ordersCompleted: admin.firestore.FieldValue.increment(1),
     },
@@ -560,8 +564,8 @@ function impactIncrementsNestedPayload(
 }
 
 /**
- * Idempotent transaction: first time an order transitions to paid `completed`,
- * mirror the same Σ(meals)×2.7 / totalSavings impact onto buyer and merchant (`users`).
+ * Idempotent transaction: first time an order transitions to paid `completed`.
+ * Buyer gets savings total (`totalSavings`) while merchant gets earned subtotal (`subtotal`).
  * Duplicate triggers or concurrent updates abort when `sustainabilityImpactApplied` is set.
  *
  * Logs: impact_applied_completed_order_buyer_merchant, impact_skip_already_applied, etc.
@@ -603,7 +607,8 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
             merchantUid: string | null;
             mergedBuyerMerchant: boolean;
             meals: number;
-            totalSavings: number;
+            buyerMoneyAmount: number;
+            merchantMoneyAmount: number;
             co2Delta: number;
           };
 
@@ -660,10 +665,16 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
           typeof d.merchantId === "string" ? d.merchantId.trim() : "";
 
         const totalSavings = readTotalSavings(d);
+        const subtotal = readSubtotal(d);
         const co2Delta = meals * CO2E_KG_PER_MEAL;
-        const payload = impactIncrementsNestedPayload(
+        const buyerPayload = impactIncrementsNestedPayload(
           meals,
           totalSavings,
+          co2Delta
+        );
+        const merchantPayload = impactIncrementsNestedPayload(
+          meals,
+          subtotal,
           co2Delta
         );
 
@@ -678,19 +689,20 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
         const sameBuyerAndMerchant =
           merchantUidRaw !== "" && merchantUidRaw === buyerIdRaw;
         if (sameBuyerAndMerchant) {
-          tx.set(buyerRef, payload, { merge: true });
+          tx.set(buyerRef, buyerPayload, { merge: true });
           return {
             outcome: "applied",
             buyerId: buyerIdRaw,
             merchantUid: merchantUidRaw || null,
             mergedBuyerMerchant: true,
             meals,
-            totalSavings,
+            buyerMoneyAmount: totalSavings,
+            merchantMoneyAmount: subtotal,
             co2Delta,
           };
         }
 
-        tx.set(buyerRef, payload, { merge: true });
+        tx.set(buyerRef, buyerPayload, { merge: true });
 
         if (!merchantUidRaw) {
           return {
@@ -699,12 +711,13 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
             merchantUid: null,
             mergedBuyerMerchant: false,
             meals,
-            totalSavings,
+            buyerMoneyAmount: totalSavings,
+            merchantMoneyAmount: subtotal,
             co2Delta,
           };
         }
 
-        tx.set(db.collection("users").doc(merchantUidRaw), payload, {
+        tx.set(db.collection("users").doc(merchantUidRaw), merchantPayload, {
           merge: true,
         });
         return {
@@ -713,7 +726,8 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
           merchantUid: merchantUidRaw,
           mergedBuyerMerchant: false,
           meals,
-          totalSavings,
+          buyerMoneyAmount: totalSavings,
+          merchantMoneyAmount: subtotal,
           co2Delta,
         };
       });
@@ -725,7 +739,8 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
             orderId,
             userId: a.buyerId,
             meals: a.meals,
-            totalSavingsApplied: a.totalSavings,
+            buyerMoneyApplied: a.buyerMoneyAmount,
+            merchantMoneyApplied: a.merchantMoneyAmount,
             co2Delta: a.co2Delta,
           });
         } else if (a.merchantUid) {
@@ -734,7 +749,8 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
             buyerId: a.buyerId,
             merchantUid: a.merchantUid,
             meals: a.meals,
-            totalSavingsApplied: a.totalSavings,
+            buyerMoneyApplied: a.buyerMoneyAmount,
+            merchantMoneyApplied: a.merchantMoneyAmount,
             co2Delta: a.co2Delta,
           });
         } else {
@@ -742,7 +758,8 @@ export const applyBuyerSustainabilityOnOrderCompleted = functions.firestore
             orderId,
             buyerId: a.buyerId,
             meals: a.meals,
-            totalSavingsApplied: a.totalSavings,
+            buyerMoneyApplied: a.buyerMoneyAmount,
+            merchantMoneyApplied: a.merchantMoneyAmount,
             co2Delta: a.co2Delta,
           });
         }

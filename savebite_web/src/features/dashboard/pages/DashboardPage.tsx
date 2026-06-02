@@ -4,8 +4,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns'
 import { GenerateReportButton } from '@/shared/components/Common/GenerateReportButton'
 import type { OrderRecord, UserRecord } from '@/shared/types/models'
-import { getUsers } from '@/features/users/api/usersApi'
-import { getOrders } from '@/features/orders/api/ordersApi'
+import { subscribeUsers } from '@/features/users/api/usersApi'
+import { subscribeOrders } from '@/features/orders/api/ordersApi'
 
 type TimeRange = '1day' | '1week' | '1month' | '3months' | '1year'
 
@@ -36,25 +36,44 @@ export function DashboardPage() {
   }, [])
 
   useEffect(() => {
-    let alive = true
-    ;(async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const [u, ord] = await Promise.all([getUsers(), getOrders()])
-        if (!alive) return
+    setLoading(true)
+    setError(null)
+
+    let usersReady = false
+    let ordersReady = false
+    const maybeFinishLoading = () => {
+      if (usersReady && ordersReady) setLoading(false)
+    }
+
+    const unsubUsers = subscribeUsers(
+      (u) => {
+        usersReady = true
         setUsers(u)
-        setOrders(ord)
-      } catch (e) {
-        if (!alive) return
+        maybeFinishLoading()
+      },
+      (e) => {
+        usersReady = true
         setError(e instanceof Error ? e.message : String(e))
-      } finally {
-        if (!alive) return
-        setLoading(false)
-      }
-    })()
+        maybeFinishLoading()
+      },
+    )
+
+    const unsubOrders = subscribeOrders(
+      (ord) => {
+        ordersReady = true
+        setOrders(ord)
+        maybeFinishLoading()
+      },
+      (e) => {
+        ordersReady = true
+        setError(e instanceof Error ? e.message : String(e))
+        maybeFinishLoading()
+      },
+    )
+
     return () => {
-      alive = false
+      unsubUsers()
+      unsubOrders()
     }
   }, [])
 

@@ -3,8 +3,6 @@ import 'package:url_launcher/url_launcher.dart';
 /// How [openRiderWhatsApp] opened (or failed).
 enum RiderWhatsAppLaunch {
   nativeApp,
-  whatsAppWeb,
-  waMeLink,
   failed,
 }
 
@@ -19,39 +17,43 @@ String riderPhoneDigitsForWhatsApp(String raw) {
   return d;
 }
 
-/// Opens WhatsApp chat with [rawPhone].
+/// Opens WhatsApp chat with [rawPhone] and optional prefilled [message].
 ///
 /// 1. Native app (`whatsapp://`) when installed.
-/// 2. [WhatsApp Web](https://web.whatsapp.com) — works on iOS Simulator after QR login.
-/// 3. `wa.me` universal link as last resort.
-Future<RiderWhatsAppLaunch> openRiderWhatsApp(String rawPhone) async {
+/// Strict native flow only (`whatsapp://`) to guarantee app-to-app redirect.
+/// If WhatsApp is not installed / unavailable, return [RiderWhatsAppLaunch.failed].
+Future<RiderWhatsAppLaunch> openRiderWhatsApp(
+  String rawPhone, {
+  String? message,
+}) async {
   final digits = riderPhoneDigitsForWhatsApp(rawPhone);
   if (digits.isEmpty) return RiderWhatsAppLaunch.failed;
+  final encodedMessage = (message ?? '').trim();
+  final text = encodedMessage.isEmpty ? null : encodedMessage;
 
-  final nativeUri = Uri.parse('whatsapp://send?phone=$digits');
-  if (await _tryLaunch(
-    nativeUri,
-    mode: LaunchMode.externalNonBrowserApplication,
-  )) {
-    return RiderWhatsAppLaunch.nativeApp;
-  }
+  final nativeCandidates = <Uri>[
+    Uri(
+      scheme: 'whatsapp',
+      host: 'send',
+      queryParameters: {
+        'phone': digits,
+        if (text != null) 'text': text,
+      },
+    ),
+    // iOS builds sometimes accept this variant more reliably.
+    Uri.parse(
+      'whatsapp://send/?phone=$digits'
+      '${text == null ? '' : '&text=${Uri.encodeComponent(text)}'}',
+    ),
+  ];
 
-  final webChatUri = Uri.parse(
-    'https://web.whatsapp.com/send?phone=$digits',
-  );
-  if (await _tryLaunch(
-    webChatUri,
-    mode: LaunchMode.externalApplication,
-  )) {
-    return RiderWhatsAppLaunch.whatsAppWeb;
-  }
-
-  final waMeUri = Uri.parse('https://wa.me/$digits');
-  if (await _tryLaunch(
-    waMeUri,
-    mode: LaunchMode.externalApplication,
-  )) {
-    return RiderWhatsAppLaunch.waMeLink;
+  for (final uri in nativeCandidates) {
+    if (await _tryLaunch(
+      uri,
+      mode: LaunchMode.externalApplication,
+    )) {
+      return RiderWhatsAppLaunch.nativeApp;
+    }
   }
 
   return RiderWhatsAppLaunch.failed;
@@ -86,11 +88,7 @@ Future<bool> callRiderPhone(String rawPhone) async {
 String? riderWhatsAppLaunchSnackMessage(RiderWhatsAppLaunch result) {
   return switch (result) {
     RiderWhatsAppLaunch.nativeApp => null,
-    RiderWhatsAppLaunch.whatsAppWeb =>
-      'Opened WhatsApp Web. On first use, scan the QR code with WhatsApp on your phone.',
-    RiderWhatsAppLaunch.waMeLink =>
-      'Opened WhatsApp link. Use Open app if WhatsApp is installed, or try WhatsApp Web in Safari.',
     RiderWhatsAppLaunch.failed =>
-      'Unable to open WhatsApp. Check the rider phone number or install WhatsApp.',
+      'Unable to open WhatsApp app. Check the rider phone number and ensure WhatsApp is installed.',
   };
 }

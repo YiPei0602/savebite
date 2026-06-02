@@ -1,4 +1,4 @@
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, getDocs, onSnapshot } from 'firebase/firestore'
 import { db } from '@/shared/firebase/firestore'
 import type { OrderRecord } from '@/shared/types/models'
 
@@ -24,4 +24,19 @@ function mapOrderDoc(id: string, data: Record<string, unknown>): OrderRecord {
 export async function getOrders(): Promise<OrderRecord[]> {
   const snap = await getDocs(collection(db, 'orders'))
   return snap.docs.map((d) => mapOrderDoc(d.id, d.data() as Record<string, unknown>))
+}
+
+export function subscribeOrders(
+  onData: (orders: OrderRecord[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  return onSnapshot(
+    collection(db, 'orders'),
+    (snap) => {
+      onData(snap.docs.map((d) => mapOrderDoc(d.id, d.data() as Record<string, unknown>)))
+    },
+    (err) => {
+      if (onError) onError(err)
+    },
+  )
 }

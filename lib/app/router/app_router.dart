@@ -12,6 +12,7 @@ import '../../features/auth_profile_impact/presentation/screens/profile_screen.d
 import '../../features/auth_profile_impact/presentation/screens/impact_dashboard_screen.dart';
 import '../../features/merchant_management/presentation/screens/add_surplus_screen.dart';
 import '../../features/merchant_management/presentation/screens/merchant_shell_screen.dart';
+import '../../features/merchant_management/presentation/screens/merchant_daily_sales_screen.dart';
 import '../../features/merchant_management/presentation/screens/merchant_store_setup_screen.dart';
 import '../../features/auth_profile_impact/presentation/screens/edit_profile_screen.dart';
 import '../../features/orders_payments/presentation/screens/payment_methods_screen.dart';
@@ -43,6 +44,7 @@ const _merchantOnlyRoutePrefixes = [
   '/merchant-orders',
   '/merchant-profile',
   '/merchant-store-setup',
+  '/merchant-daily-sales',
 ];
 
 /// Routes that are valid for both roles (authenticated).
@@ -184,9 +186,8 @@ class AppRouter {
           builder: (context, state) {
             final raw = state.uri.queryParameters['tab'];
             final parsed = int.tryParse(raw ?? '');
-            final index = parsed == null
-                ? 0
-                : parsed.clamp(0, HomeScreen.tabCount - 1);
+            final index =
+                parsed == null ? 0 : parsed.clamp(0, HomeScreen.tabCount - 1);
             return HomeScreen(initialTabIndex: index);
           },
         ),
@@ -216,7 +217,9 @@ class AppRouter {
           path: '/add-surplus',
           name: 'add-surplus',
           builder: (context, state) => AddSurplusScreen(
-            initialItem: state.extra is FoodItemModel ? state.extra as FoodItemModel : null,
+            initialItem: state.extra is FoodItemModel
+                ? state.extra as FoodItemModel
+                : null,
           ),
         ),
         GoRoute(
@@ -242,11 +245,17 @@ class AppRouter {
             // Default: onboarding (used right after merchant signup).
             // Use `/merchant-store-setup?onboarding=false` to open as an editable
             // store profile screen that returns to previous page after save.
-            final isOnboarding = state.uri.queryParameters['onboarding'] == 'false'
-                ? false
-                : true;
+            final isOnboarding =
+                state.uri.queryParameters['onboarding'] == 'false'
+                    ? false
+                    : true;
             return MerchantStoreSetupScreen(isOnboarding: isOnboarding);
           },
+        ),
+        GoRoute(
+          path: '/merchant-daily-sales',
+          name: 'merchant-daily-sales',
+          builder: (context, state) => const MerchantDailySalesScreen(),
         ),
 
         // ========================================================================
@@ -352,4 +361,3 @@ class AppRouter {
     );
   }
 }
-

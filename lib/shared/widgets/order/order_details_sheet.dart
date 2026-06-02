@@ -473,6 +473,22 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
     _riderNoteC = TextEditingController(text: o.riderNote ?? '');
   }
 
+  bool get _hasRiderCoreDetails {
+    return _riderNameC.text.trim().isNotEmpty &&
+        _riderPhoneC.text.trim().isNotEmpty &&
+        _riderVehicleC.text.trim().isNotEmpty;
+  }
+
+  bool _validateRiderCoreDetails() {
+    if (_hasRiderCoreDetails) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please fill rider name, phone, and vehicle plate first.'),
+      ),
+    );
+    return false;
+  }
+
   @override
   void dispose() {
     _riderNameC.dispose();
@@ -482,8 +498,8 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
     super.dispose();
   }
 
-  Future<void> _saveRiderDetails() async {
-    if (_riderSaveBusy) return;
+  Future<bool> _saveRiderDetails({bool showSuccessSnackBar = true}) async {
+    if (_riderSaveBusy) return false;
     setState(() => _riderSaveBusy = true);
     final ok = await context.read<OrderProvider>().updateOrderRiderDetails(
           orderId: order.id,
@@ -492,7 +508,7 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
           riderVehicleInfo: _riderVehicleC.text,
           riderNote: _riderNoteC.text,
         );
-    if (!mounted) return;
+    if (!mounted) return false;
     setState(() => _riderSaveBusy = false);
     if (ok == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -503,11 +519,23 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
           ),
         ),
       );
-      return;
+      return false;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rider details saved')),
-    );
+    if (showSuccessSnackBar) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rider details saved')),
+      );
+    }
+    return true;
+  }
+
+  Future<void> _saveRiderAndStartPreparing() async {
+    if (_busy || _riderSaveBusy) return;
+    if (!_validateRiderCoreDetails()) return;
+
+    final saved = await _saveRiderDetails(showSuccessSnackBar: false);
+    if (!saved || !mounted) return;
+    await _setStatus(OrderStatus.preparing);
   }
 
   Future<void> _setStatus(OrderStatus status) async {
@@ -592,7 +620,7 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
         }
         return (label: 'Finding driver', target: OrderStatus.findingDriver);
       case OrderStatus.findingDriver:
-        return (label: 'Start preparing', target: OrderStatus.preparing);
+        return (label: null, target: null);
       case OrderStatus.preparing:
         return (label: 'Mark as ready', target: OrderStatus.ready);
       case OrderStatus.ready:
@@ -616,13 +644,17 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
     final showActions =
         status != OrderStatus.completed && status != OrderStatus.cancelled;
     final primary = _primaryAction();
+    final showRiderAssignment = order.fulfillmentType == FulfillmentType.delivery &&
+        (status == OrderStatus.findingDriver ||
+            (status == OrderStatus.ready && !_hasRiderCoreDetails));
+    final isFindingDriver = status == OrderStatus.findingDriver;
 
     if (!showActions) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (order.fulfillmentType == FulfillmentType.delivery) ...[
+        if (showRiderAssignment) ...[
           Text(
             'Rider / delivery partner',
             style: AppTypography.bodySmall.copyWith(
@@ -671,7 +703,9 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
-              onPressed: _riderSaveBusy ? null : _saveRiderDetails,
+              onPressed: isFindingDriver || _riderSaveBusy
+                  ? null
+                  : () => _saveRiderDetails(),
               icon: _riderSaveBusy
                   ? const SizedBox(
                       width: 16,
@@ -680,6 +714,32 @@ class _MerchantOrderActionsState extends State<_MerchantOrderActions> {
                     )
                   : const Icon(Icons.save_outlined, size: 18),
               label: const Text('Save rider details'),
+            ),
+          ),
+          const SizedBox(height: AppConstants.paddingM),
+        ],
+        if (isFindingDriver) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: (_busy || _riderSaveBusy)
+                  ? null
+                  : _saveRiderAndStartPreparing,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: (_busy || _riderSaveBusy)
+                  ? const SizedBox(
+                      height: 16,
+                      width: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Save rider & start preparing'),
             ),
           ),
           const SizedBox(height: AppConstants.paddingM),
